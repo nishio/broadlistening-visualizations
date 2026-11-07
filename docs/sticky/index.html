@@ -43,156 +43,127 @@ button { font: inherit; font-size: 13px; min-width: 36px; padding: 6px 10px; bor
 <div class="detail" id="detail"></div>
 <script>
 "use strict";
-// 意見を 2 次元配置（arguments[].x / y）に置き、拡大率に応じて表示を切り替える（semantic zoom）。
-//   引き：上位クラスタの表札 → 中間：下位クラスタの表札 → 寄り：意見の付箋
-// 付箋は画面を付箋 1 枚ぶんの升目に割り、升目ごとに 1 枚だけ置く（中心に近い意見を優先）。
-// 寄るほど升目あたりの意見が減り、すべての意見が付箋になる。置けなかった意見は点で描く。
+// 付箋の位置と「どの拡大率から付箋として出すか」は scripts/build_sticky_layout.py で事前に決めてある。
+// ここでは拡大率と比べて、出す付箋は付箋、まだ出さない意見は点で描くだけ。付箋は画面上で一定の大きさ。
+// 一度出た付箋は寄っても消えず、位置も動かない。
 const I18N = {
-  ja: { title: "付箋ズーム", lv: ["上位のまとまり", "下位のまとまり", "意見"], src: "元の提案（PR）を開く",
-        sub: (n) => `意見 ${n.toLocaleString()} 件を広聴AI の配置に置いた。ホイール・ピンチで拡大、ドラッグで移動。引くとまとまりの表札、寄ると意見の付箋になる。付箋や表札を押すと詳細。` },
-  en: { title: "Sticky-note zoom", lv: ["top-level groups", "sub-groups", "opinions"], src: "Open the source proposal (PR)",
-        sub: (n) => `${n.toLocaleString()} opinions placed on the Kouchou-AI layout. Wheel or pinch to zoom, drag to pan. Zoomed out you see group labels; zoomed in, opinion notes. Tap a note or label for details.` },
+  ja: { title: "付箋ズーム", src: "元の提案（PR）を開く", shown: (n, t) => `· 付箋 ${n.toLocaleString()} 枚 / ${t.toLocaleString()} 件`,
+        sub: (n) => `意見 ${n.toLocaleString()} 件を広聴AI の配置に置いた。引いた状態では各まとまりの代表の意見が付箋で、寄るほど付箋が増え、最後は全部の意見が付箋になる。ホイール・ピンチで拡大、ドラッグで移動、付箋を押すと詳細。` },
+  en: { title: "Sticky-note zoom", src: "Open the source proposal (PR)", shown: (n, t) => `· ${n.toLocaleString()} notes / ${t.toLocaleString()} opinions`,
+        sub: (n) => `${n.toLocaleString()} opinions on the Kouchou-AI layout. Zoomed out, each group shows its representative opinion as a note; zoom in and more notes appear until every opinion is a note. Wheel or pinch to zoom, drag to pan, tap a note for details.` },
 };
 const FONT = 'system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif';
-const PALETTE = ["#f7d774", "#f4a9a8", "#a8d5ba", "#a7c7e7", "#d7b8f3", "#f9c38f", "#b5e3e0", "#e6c9a8", "#c9e4a4", "#f2b5d4"];
 const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
-let P, lang = "ja", W, H, dpr = 1;
-let tx = 0, ty = 0, k = 1, fitK = 1; // screen = world * k + t（y は上下反転）
-let A = [];        // {x, y, c1, c2, text, ten, url, id, order}
-let C1 = [], C2 = []; // {id, label, len, takeaway, ten, tten, x, y, n, color, bbox}
-let placed = [];   // 当たり判定用：{kind, ref, x, y, w, h}
 const $ = (id) => document.getElementById(id);
+let P, L, lang = "ja", W, H, dpr = 1;
+let tx = 0, ty = 0, k = 1, fitK = 1, maxK = 1;
+let A = [], C = new Map(), placed = [], NW = 140, NH = 76;
+const STEP = Math.pow(2, 1 / 8);
+const cache = new Map();
 
-function resize() {
-  dpr = window.devicePixelRatio || 1; W = window.innerWidth; H = window.innerHeight;
-  cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); draw();
-}
 const sx = (x) => x * k + tx, sy = (y) => -y * k + ty;
 const wx = (X) => (X - tx) / k, wy = (Y) => -(Y - ty) / k;
 
+function resize() { dpr = window.devicePixelRatio || 1; W = window.innerWidth; H = window.innerHeight; cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); requestDraw(); }
 function fit() {
-  const xs = A.map((a) => a.x), ys = A.map((a) => a.y);
-  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const a of A) { x0 = Math.min(x0, a.x); x1 = Math.max(x1, a.x); y0 = Math.min(y0, a.y); y1 = Math.max(y1, a.y); }
   const top = 70;
-  k = fitK = Math.min(W / (x1 - x0), (H - top) / (y1 - y0)) * 0.9;
-  tx = W / 2 - (x0 + x1) / 2 * k; ty = top + (H - top) / 2 + (y0 + y1) / 2 * k;
-  draw();
+  k = fitK = Math.min(W / (x1 - x0), (H - top) / (y1 - y0)) * 0.92;
+  tx = W / 2 - (x0 + x1) / 2 * k; ty = top + (H - top) / 2 + (y0 + y1) / 2 * k; requestDraw();
 }
 function zoomAt(X, Y, f) {
-  const nk = Math.max(fitK * 0.5, Math.min(fitK * 400, k * f));
-  const wx0 = wx(X), wy0 = wy(Y); k = nk; tx = X - wx0 * k; ty = Y + wy0 * k; draw();
+  const nk = Math.max(fitK * 0.6, Math.min(maxK, k * f));
+  const a = wx(X), b = wy(Y); k = nk; tx = X - a * k; ty = Y + b * k; requestDraw();
 }
 
-function level() { const r = k / fitK; return r < 2.2 ? 0 : r < 7 ? 1 : 2; }
-const txt = (o) => (lang === "en" && o.ten) || o.text;
+const txt = (a) => (lang === "en" && a.ten) || a.text;
 const lab = (c) => (lang === "en" && c.len) || c.label;
-
 function wrap(s, maxW, maxLines) {
   const out = []; let line = "";
   for (const ch of s) {
-    if (ctx.measureText(line + ch).width > maxW && line) { out.push(line); line = ch; if (out.length === maxLines) break; }
+    if (ctx.measureText(line + ch).width > maxW && line) { out.push(line); line = ch; if (out.length === maxLines) { line = null; break; } }
     else line += ch;
   }
-  if (out.length < maxLines && line) out.push(line);
-  else if (out.length === maxLines && line) out[maxLines - 1] = out[maxLines - 1].slice(0, -1) + "…";
+  if (line) out.push(line);
+  else if (line === null) { let l = out[maxLines - 1]; while (l && ctx.measureText(l + "…").width > maxW) l = l.slice(0, -1); out[maxLines - 1] = l + "…"; }
   return out;
 }
-function note(x, y, w, h, color, lines, fontPx, bold, count) {
-  ctx.fillStyle = "rgba(0,0,0,.12)"; ctx.fillRect(x + 2, y + 2, w, h);
-  ctx.fillStyle = color; ctx.fillRect(x, y, w, h);
-  ctx.fillStyle = "#1d1d1b"; ctx.font = `${bold ? 600 : 400} ${fontPx}px ${FONT}`;
-  ctx.textBaseline = "top";
-  const lh = fontPx * 1.3, y0 = y + (h - lines.length * lh) / 2 - (count ? fontPx * 0.4 : 0);
-  lines.forEach((l, i) => ctx.fillText(l, x + 6, y0 + i * lh));
-  if (count) { ctx.font = `400 ${Math.max(10, fontPx * 0.75)}px ${FONT}`; ctx.fillStyle = "#5a5a55"; ctx.fillText(count.toLocaleString() + (lang === "ja" ? " 件" : ""), x + 6, y + h - fontPx); }
+// 付箋の中身は大きさが一定なので、改行位置は言語ごとに 1 回だけ計算して使い回す
+function content(a) {
+  const key = lang + a.i;
+  let c = cache.get(key);
+  if (c) return c;
+  const pad = 7, w = NW - pad * 2;
+  c = {};
+  if (a.head) {
+    ctx.font = `600 11px ${FONT}`; c.head = wrap(lab(a.head === 1 ? a.c1 : a.c2), w, 2);
+    ctx.font = `400 11px ${FONT}`; c.body = wrap(txt(a), w, c.head.length === 1 ? 3 : 2);
+  } else {
+    ctx.font = `400 12px ${FONT}`; c.body = wrap(txt(a), w, 4);
+  }
+  cache.set(key, c);
+  return c;
 }
 
+function drawNote(a, X, Y, alpha) {
+  const x = X - NW / 2, y = Y - NH / 2, pad = 7;
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = "rgba(0,0,0,.13)"; ctx.fillRect(x + 2, y + 2, NW, NH);
+  ctx.fillStyle = a.c1.color; ctx.fillRect(x, y, NW, NH);
+  const c = content(a);
+  ctx.textBaseline = "top";
+  if (c.head) {
+    const bh = c.head.length * 14 + 6;
+    ctx.fillStyle = a.c1.band; ctx.fillRect(x, y, NW, bh);
+    ctx.fillStyle = "#14140f"; ctx.font = `600 11px ${FONT}`;
+    c.head.forEach((l, i) => ctx.fillText(l, x + pad, y + 4 + i * 14));
+    ctx.font = `400 11px ${FONT}`; ctx.fillStyle = "#2a2a26";
+    c.body.forEach((l, i) => ctx.fillText(l, x + pad, y + bh + 4 + i * 14));
+  } else {
+    ctx.font = `400 12px ${FONT}`; ctx.fillStyle = "#1d1d1b";
+    const lh = 15.5, y0 = y + (NH - c.body.length * lh) / 2 + 1;
+    c.body.forEach((l, i) => ctx.fillText(l, x + pad, y0 + i * lh));
+  }
+  ctx.globalAlpha = 1;
+  placed.push({ a, x, y });
+}
+
+let pending = false;
+function requestDraw() { if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; draw(); }); } }
 function draw() {
   if (!A.length) return;
   ctx.fillStyle = getComputedStyle(document.body).backgroundColor; ctx.fillRect(0, 0, W, H);
-  const lv = level(); placed = [];
-  $("lvl").textContent = "· " + I18N[lang].lv[lv];
-  // 点（全意見）
-  const dot = lv === 2 ? 2 : 1.6;
+  placed = [];
+  const notes = [];
+  let shown = 0;
   for (const a of A) {
+    if (a.z <= k) shown++;
     const X = sx(a.x), Y = sy(a.y);
-    if (X < -5 || X > W + 5 || Y < -5 || Y > H + 5) continue;
-    ctx.fillStyle = C1[a.c1i].color; ctx.globalAlpha = lv === 2 ? 0.5 : 0.8; ctx.fillRect(X - dot / 2, Y - dot / 2, dot, dot);
+    if (X < -NW || X > W + NW || Y < -NH || Y > H + NH) continue;
+    if (a.z <= k) notes.push([a, X, Y]);
+    else { ctx.fillStyle = a.c1.dot; ctx.fillRect(X - 1.2, Y - 1.2, 2.4, 2.4); }
   }
-  ctx.globalAlpha = 1;
-  if (lv === 2) drawNotes(); else drawLabels(lv === 0 ? C1 : C2, lv === 0);
+  // 出始めの付箋は 1.5 段ぶんかけて濃くする（段の境目で急に現れないように）
+  for (const [a, X, Y] of notes) drawNote(a, X, Y, Math.min(1, 0.25 + Math.log(k / a.z) / Math.log(STEP) / 1.5));
+  $("lvl").textContent = I18N[lang].shown(shown, A.length);
 }
 
-function drawLabels(list, big) {
-  // 件数の多い順に、重ならない範囲で表札を置く
-  const taken = [];
-  const fontPx = big ? 13 : 12, w = big ? 150 : 140, maxLines = 3;
-  ctx.font = `600 ${fontPx}px ${FONT}`;
-  for (const c of list) {
-    const X = sx(c.x), Y = sy(c.y);
-    ctx.font = `600 ${fontPx}px ${FONT}`; // note() が件数用に書き換えるので毎回戻す
-    const lines = wrap(lab(c), w - 12, maxLines);
-    const h = lines.length * fontPx * 1.3 + fontPx * 1.6 + 8;
-    const r = { x: X - w / 2, y: Y - h / 2, w, h };
-    if (r.x > W || r.y > H || r.x + w < 0 || r.y + h < 0) continue;
-    if (taken.some((t) => r.x < t.x + t.w && t.x < r.x + r.w && r.y < t.y + t.h && t.y < r.y + r.h)) continue;
-    taken.push(r);
-    note(r.x, r.y, w, h, c.color, lines, fontPx, true, c.n);
-    placed.push({ kind: "c", ref: c, ...r });
-  }
-}
-
-function drawNotes() {
-  const r = k / fitK;
-  const w = 128, h = 64, fontPx = 11.5;
-  ctx.font = `400 ${fontPx}px ${FONT}`;
-  const cols = Math.ceil(W / w) + 1, used = new Set();
-  // 升目は世界座標に固定（パンしても付箋が入れ替わらないように）
-  const ox = ((tx % w) + w) % w, oy = ((ty % h) + h) % h;
-  for (const a of A) { // A は中心に近い順に並べてある
-    const X = sx(a.x), Y = sy(a.y);
-    if (X < -w || X > W + w || Y < -h || Y > H + h) continue;
-    const gx = Math.floor((X - ox) / w), gy = Math.floor((Y - oy) / h);
-    const key = gx * 100003 + gy;
-    if (used.has(key)) continue;
-    used.add(key);
-    const x = gx * w + ox + 2, y = gy * h + oy + 2;
-    const lines = wrap(txt(a), w - 16, 3);
-    note(x, y, w - 4, h - 4, C1[a.c1i].color, lines, fontPx, false, 0);
-    placed.push({ kind: "a", ref: a, x, y, w: w - 4, h: h - 4 });
-  }
-}
-
-function showDetail(p) {
+function showDetail(a) {
   const d = $("detail"); d.innerHTML = "";
-  const path = document.createElement("div"); path.className = "path";
-  if (p.kind === "a") {
-    const a = p.ref;
-    path.textContent = lab(C1[a.c1i]) + " › " + lab(C2[a.c2i]); d.appendChild(path);
-    const t = document.createElement("div"); t.textContent = txt(a); d.appendChild(t);
-    if (lang === "en" && a.ten) { const j = document.createElement("div"); j.className = "path"; j.textContent = a.text; d.appendChild(j); }
-    if (a.url) { const l = document.createElement("a"); l.href = a.url; l.target = "_blank"; l.rel = "noopener"; l.textContent = I18N[lang].src; d.appendChild(l); }
-  } else {
-    const c = p.ref;
-    const t = document.createElement("div"); t.style.fontWeight = 600; t.textContent = lab(c) + `（${c.n.toLocaleString()}）`; d.appendChild(t);
-    const tk = (lang === "en" && c.tten) || c.takeaway;
-    if (tk) { const s = document.createElement("div"); s.className = "path"; s.style.marginTop = "4px"; s.textContent = tk; d.appendChild(s); }
-    // 表札を押したら、そのまとまりへ寄る
-    const [x0, y0, x1, y1] = c.bbox, top = 70;
-    k = Math.min(W / (x1 - x0 || 1), (H - top) / (y1 - y0 || 1)) * 0.85;
-    k = Math.max(k, fitK * (c.level === 1 ? 2.3 : 7.2));
-    tx = W / 2 - (x0 + x1) / 2 * k; ty = top + (H - top) / 2 + (y0 + y1) / 2 * k; draw();
-  }
+  const path = document.createElement("div"); path.className = "path"; path.textContent = lab(a.c1) + " › " + lab(a.c2); d.appendChild(path);
+  const t = document.createElement("div"); t.textContent = txt(a); d.appendChild(t);
+  if (lang === "en" && a.ten) { const j = document.createElement("div"); j.className = "path"; j.textContent = a.text; d.appendChild(j); }
+  if (a.url) { const l = document.createElement("a"); l.href = a.url; l.target = "_blank"; l.rel = "noopener"; l.textContent = I18N[lang].src; d.appendChild(l); }
   d.classList.add("on");
 }
 
-// 入力：ドラッグ・ホイール・ピンチ・タップ
 const ptrs = new Map(); let moved = 0, pinch0 = null;
 cv.addEventListener("pointerdown", (e) => { cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); moved = 0; cv.classList.add("drag"); });
 cv.addEventListener("pointermove", (e) => {
   if (!ptrs.has(e.pointerId)) return;
   const prev = ptrs.get(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
-  if (ptrs.size === 1) { tx += e.clientX - prev.x; ty += e.clientY - prev.y; moved += Math.abs(e.clientX - prev.x) + Math.abs(e.clientY - prev.y); draw(); }
+  if (ptrs.size === 1) { tx += e.clientX - prev.x; ty += e.clientY - prev.y; moved += Math.abs(e.clientX - prev.x) + Math.abs(e.clientY - prev.y); requestDraw(); }
   else if (ptrs.size === 2) {
     const [p, q] = [...ptrs.values()]; const dist = Math.hypot(p.x - q.x, p.y - q.y);
     if (pinch0) zoomAt((p.x + q.x) / 2, (p.y + q.y) / 2, dist / pinch0);
@@ -202,8 +173,8 @@ cv.addEventListener("pointermove", (e) => {
 const up = (e) => {
   ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch0 = null; cv.classList.remove("drag");
   if (e.type === "pointerup" && moved < 6 && ptrs.size === 0) {
-    const hit = [...placed].reverse().find((p) => e.clientX >= p.x && e.clientX <= p.x + p.w && e.clientY >= p.y && e.clientY <= p.y + p.h);
-    if (hit) showDetail(hit); else $("detail").classList.remove("on");
+    const hit = placed.find((p) => e.clientX >= p.x && e.clientX <= p.x + NW && e.clientY >= p.y && e.clientY <= p.y + NH);
+    if (hit) showDetail(hit.a); else $("detail").classList.remove("on");
   }
 };
 cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
@@ -219,31 +190,31 @@ function applyLang() {
   $("title").textContent = I18N[lang].title; document.title = I18N[lang].title;
   $("sub").textContent = I18N[lang].sub(A.length);
   $("lang").textContent = lang === "ja" ? "EN" : "日本語";
-  $("detail").classList.remove("on"); draw();
+  $("detail").classList.remove("on"); requestDraw();
 }
 
 async function main() {
-  const src = new URLSearchParams(location.search).get("data") || "../data/team-mirai-2025/public_result.json";
-  P = await (await fetch(src)).json();
-  const en = (P.translations && P.translations.en) || {};
-  const enC = en.clusters || {}, enA = en.arguments || {};
+  const q = new URLSearchParams(location.search);
+  const [p, l] = await Promise.all([
+    fetch(q.get("data") || "../data/team-mirai-2025/public_result.json").then((r) => r.json()),
+    fetch(q.get("layout") || "team-mirai-2025.layout.json").then((r) => r.json()),
+  ]);
+  P = p; L = l;
+  NW = L.meta.note.w; NH = L.meta.note.h; maxK = L.meta.z_full * 2;
+  const en = (P.translations && P.translations.en) || {}, enC = en.clusters || {}, enA = en.arguments || {};
   const maxLevel = Math.max(...P.clusters.map((c) => c.level));
-  const mk = (c, i) => ({ id: c.id, level: c.level, label: c.label, takeaway: c.takeaway, len: enC[c.id] && enC[c.id].label, tten: enC[c.id] && enC[c.id].takeaway, n: c.value, sx: 0, sy: 0, bbox: [Infinity, Infinity, -Infinity, -Infinity], i });
-  C1 = P.clusters.filter((c) => c.level === 1).sort((a, b) => b.value - a.value).map(mk);
-  C2 = P.clusters.filter((c) => c.level === maxLevel).sort((a, b) => b.value - a.value).map(mk);
-  C1.forEach((c, i) => { c.color = PALETTE[i % PALETTE.length]; });
-  const i1 = new Map(C1.map((c, i) => [c.id, i])), i2 = new Map(C2.map((c, i) => [c.id, i]));
-  A = P.arguments.map((a) => ({ x: a.x, y: a.y, c1i: i1.get(a.cluster_ids[1]), c2i: i2.get(a.cluster_ids[maxLevel]), text: a.argument, ten: enA[a.arg_id], url: a.url }));
-  for (const a of A) for (const c of [C1[a.c1i], C2[a.c2i]]) {
-    c.sx += a.x; c.sy += a.y;
-    c.bbox[0] = Math.min(c.bbox[0], a.x); c.bbox[1] = Math.min(c.bbox[1], a.y); c.bbox[2] = Math.max(c.bbox[2], a.x); c.bbox[3] = Math.max(c.bbox[3], a.y);
-  }
-  for (const c of [...C1, ...C2]) { const cnt = A.filter((a) => (c.level === 1 ? C1[a.c1i] : C2[a.c2i]) === c).length || 1; c.x = c.sx / cnt; c.y = c.sy / cnt; }
-  C2.forEach((c) => { c.color = PALETTE[A.find((a) => C2[a.c2i] === c)?.c1i % PALETTE.length || 0]; });
-  // 付箋を置く優先順：下位のまとまりの中心に近い意見ほど先
-  for (const a of A) { const c = C2[a.c2i]; a.d = (a.x - c.x) ** 2 + (a.y - c.y) ** 2; }
-  A.sort((p, q) => p.d - q.d);
-  if (!enC || !Object.keys(enC).length) $("lang").style.display = "none";
+  const l1 = P.clusters.filter((c) => c.level === 1).sort((a, b) => b.value - a.value);
+  l1.forEach((c, i) => {
+    const hue = Math.round((i * 137.5) % 360);
+    C.set(c.id, { ...c, len: enC[c.id] && enC[c.id].label, color: `hsl(${hue} 70% 85%)`, band: `hsl(${hue} 55% 70%)`, dot: `hsla(${hue} 55% 50% / .55)` });
+  });
+  for (const c of P.clusters) if (!C.has(c.id)) C.set(c.id, { ...c, len: enC[c.id] && enC[c.id].label });
+  A = P.arguments.map((a, i) => ({
+    i, x: L.x[i], y: L.y[i], z: L.z[i], rank: L.rank[i], head: L.head[i],
+    c1: C.get(a.cluster_ids[1]), c2: C.get(a.cluster_ids[maxLevel]), text: a.argument, ten: enA[a.arg_id], url: a.url,
+  }));
+  A.sort((p, q) => p.rank - q.rank);
+  if (!Object.keys(enC).length) $("lang").style.display = "none";
   resize(); fit(); applyLang();
 }
 main().catch((e) => { $("sub").textContent = "読み込みに失敗しました: " + e; });
