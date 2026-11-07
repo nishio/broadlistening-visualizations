@@ -57,18 +57,18 @@ footer a { color: var(--accent); }
 </head>
 <body>
 <header>
-  <h1 id="title">意見マンダラート</h1>
+  <h1><a href="../" style="color:inherit;text-decoration:none">←</a> <span id="title">意見マンダラート</span></h1>
   <div class="sub" id="sub">読み込み中…</div>
 </header>
 <div class="bar">
   <div class="crumbs" id="crumbs"></div>
   <button id="up">↑ <span data-i18n="up">上へ</span></button>
-  <button id="mode9" aria-pressed="true">9×9</button>
-  <button id="mode3" aria-pressed="false">3×3</button>
+  <button id="mode3" aria-pressed="true">3×3</button>
+  <button id="mode9" aria-pressed="false">9×9</button>
   <button id="lang">EN</button>
 </div>
 <main>
-  <div class="board nine" id="board"></div>
+  <div class="board three" id="board"></div>
   <div class="detail" id="detail"></div>
 </main>
 <footer id="foot"></footer>
@@ -76,14 +76,14 @@ footer a { color: var(--accent); }
 "use strict";
 const I18N = {
   ja: { up: "上へ", opinions: "件", source: "元の提案（PR）を開く", root: "全体",
-        sub: (m) => `意見 ${m.n_arguments.toLocaleString()} 件を 8 つずつに割り、1 マスが意見 1 枚になるまで繰り返した木（${m.n_nodes.toLocaleString()} 節・最大 ${m.max_depth} 段）。表札は各まとまりの中心に最も近い意見。マスを押すとそこへ降り、中心を押すと上へ戻る。`,
+        sub: (m) => `意見 ${m.n_arguments.toLocaleString()} 件を 8 つずつに割り、1 マスが意見 1 枚になるまで繰り返した木（${m.n_nodes.toLocaleString()} 節・最大 ${m.max_depth} 段）。表札は各まとまりの中心に最も近い意見。マスを押すとそこへ降り、中心を押すと上へ戻る。9×9 にすると、周りの 8 マスそれぞれの中身も同時に見える。`,
         foot: "出典：チームみらい・しゃべれるマニフェスト参加者 / データセット " },
   en: { up: "Up", opinions: "", source: "Open the source proposal (PR)", root: "All",
-        sub: (m) => `${m.n_arguments.toLocaleString()} opinions split into at most 8 groups, repeatedly, until each cell holds one opinion (${m.n_nodes.toLocaleString()} nodes, depth up to ${m.max_depth}). Each group is labelled with the opinion closest to its centre. Click a cell to go down; click the centre to go up.`,
+        sub: (m) => `${m.n_arguments.toLocaleString()} opinions split into at most 8 groups, repeatedly, until each cell holds one opinion (${m.n_nodes.toLocaleString()} nodes, depth up to ${m.max_depth}). Each group is labelled with the opinion closest to its centre. Click a cell to go down; click the centre to go up. Switch to 9×9 to see inside all eight cells at once.`,
         foot: "Source: Team Mirai and the participants of Shabereru Manifesto / dataset " },
 };
 const POS = [0, 1, 2, 5, 8, 7, 6, 3]; // 3×3 の周りのマスを左上から時計回りに
-let T = null, lang = "ja", mode = window.innerWidth < 720 ? 3 : 9, parentOf = [];
+let T = null, lang = "ja", mode = 3, parentOf = [];
 
 const $ = (id) => document.getElementById(id);
 const txt = (i) => (lang === "en" && T.args.text_en && T.args.text_en[i]) || T.args.text[i];

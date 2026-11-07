@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>意見の階層リスト</title>
+<style>
+:root {
+  --bg: #f6f5f1; --fg: #1d1d1b; --muted: #6b6a64; --line: #d8d6ce; --accent: #2f4f7f;
+  --l1: #e8eef7; --l2: #f0f3f8; --arg: #fffdf6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17181a; --fg: #ecebe6; --muted: #a09f98; --line: #34363a; --accent: #8fb0e0;
+    --l1: #1f2a3a; --l2: #1b2230; --arg: #24231f;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.55 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+header { padding: 12px 16px 4px; max-width: 900px; margin: 0 auto; }
+h1 { font-size: 17px; margin: 0 0 2px; }
+h1 a { color: inherit; text-decoration: none; }
+.sub { color: var(--muted); font-size: 12px; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 16px; max-width: 900px; margin: 0 auto; }
+input[type=search] { flex: 1 1 200px; font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+button { font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; cursor: pointer; }
+main { padding: 0 16px 32px; max-width: 900px; margin: 0 auto; }
+ul { list-style: none; margin: 0; padding: 0; }
+.node > .row { display: flex; gap: 8px; align-items: baseline; padding: 6px 8px; border-radius: 6px; cursor: pointer; }
+.node.l1 > .row { background: var(--l1); margin-top: 6px; font-weight: 600; }
+.node.l2 > .row { background: var(--l2); margin-top: 3px; }
+.node.l2 { margin-left: 18px; }
+.tw { width: 1em; flex: none; color: var(--muted); }
+.lab { flex: 1; }
+.cnt { flex: none; color: var(--muted); font-size: 12px; font-weight: 400; }
+.take { margin: 4px 8px 4px 26px; color: var(--muted); font-size: 13px; }
+.args { margin: 4px 0 6px 44px; }
+.args li { background: var(--arg); border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; margin: 3px 0; font-size: 13px; display: flex; gap: 8px; }
+.args li span { flex: 1; }
+.args a, .more { color: var(--accent); font-size: 12px; white-space: nowrap; }
+.more { background: none; border: none; padding: 2px 0 2px 44px; }
+mark { background: #f3d36b; color: #1d1d1b; padding: 0 1px; }
+footer { padding: 8px 16px 24px; color: var(--muted); font-size: 11px; max-width: 900px; margin: 0 auto; }
+footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="../">←</a> <span id="title">意見の階層リスト</span></h1>
+  <div class="sub" id="sub">読み込み中…</div>
+</header>
+<div class="bar">
+  <input type="search" id="q" placeholder="意見を検索">
+  <button id="expand">すべて開く</button>
+  <button id="collapse">すべて閉じる</button>
+  <button id="lang">EN</button>
+</div>
+<main><ul id="root"></ul></main>
+<footer id="foot"></footer>
+<script>
+"use strict";
+const PAGE = 30; // 1 つのまとまりで最初に出す意見の数
+const I18N = {
+  ja: { title: "意見の階層リスト", search: "意見を検索", expand: "すべて開く", collapse: "すべて閉じる", more: (n) => `残り ${n} 件を表示`,
+        src: "出典", cnt: (n, t) => t == null ? `${n.toLocaleString()} 件` : `${n.toLocaleString()} / ${t.toLocaleString()} 件`,
+        sub: (P) => `${P.config.question || ""}。意見 ${P.arguments.length.toLocaleString()} 件を、広聴AI の 2 段のクラスタ（上位 ${count(1)}・下位 ${count(2)}）で上から展開し、最下層で個々の意見と元の提案まで辿る。`,
+        foot: "出典：チームみらい・しゃべれるマニフェスト参加者 / データセット " },
+  en: { title: "Hierarchical list of opinions", search: "Search opinions", expand: "Expand all", collapse: "Collapse all", more: (n) => `Show ${n} more`,
+        src: "source", cnt: (n, t) => t == null ? `${n.toLocaleString()}` : `${n.toLocaleString()} / ${t.toLocaleString()}`,
+        sub: (P) => `${P.arguments.length.toLocaleString()} opinions, organised by Kouchou-AI's two cluster levels (${count(1)} top, ${count(2)} lower). Expand to reach each opinion and its source proposal.`,
+        foot: "Source: Team Mirai and the participants of Shabereru Manifesto / dataset " },
+};
+let P = null, lang = "ja", query = "";
+const open = new Set();
+const shown = new Map();
+const byParent = new Map();
+const argsOf = new Map();
+const $ = (id) => document.getElementById(id);
+const count = (lv) => P.clusters.filter((c) => c.level === lv).length;
+const en = () => (P.translations && P.translations.en) || {};
+const cLabel = (c) => (lang === "en" && en().clusters && en().clusters[c.id] && en().clusters[c.id].label) || c.label;
+const cTake = (c) => (lang === "en" && en().clusters && en().clusters[c.id] && en().clusters[c.id].takeaway) || c.takeaway;
+const aText = (a) => (lang === "en" && en().arguments && en().arguments[a.arg_id]) || a.argument;
+
+function matches(a) { return !query || aText(a).toLowerCase().includes(query); }
+function hits(c) {
+  if (!query) return null;
+  const leafIds = c.level === 2 ? [c.id] : (byParent.get(c.id) || []).map((x) => x.id);
+  let n = 0; for (const id of leafIds) for (const a of argsOf.get(id) || []) if (matches(a)) n++;
+  return n;
+}
+function highlight(el, text) {
+  if (!query) { el.textContent = text; return; }
+  const low = text.toLowerCase(); let i = 0, j;
+  while ((j = low.indexOf(query, i)) >= 0) {
+    el.appendChild(document.createTextNode(text.slice(i, j)));
+    const m = document.createElement("mark"); m.textContent = text.slice(j, j + query.length); el.appendChild(m);
+    i = j + query.length;
+  }
+  el.appendChild(document.createTextNode(text.slice(i)));
+}
+
+function nodeEl(c) {
+  const h = hits(c);
+  if (h === 0) return null;
+  const li = document.createElement("li"); li.className = "node l" + c.level;
+  const row = document.createElement("div"); row.className = "row"; row.tabIndex = 0;
+  const isOpen = open.has(c.id) || (query && c.level === 1);
+  row.innerHTML = `<span class="tw">${isOpen ? "▾" : "▸"}</span>`;
+  const lab = document.createElement("span"); lab.className = "lab"; lab.textContent = cLabel(c); row.appendChild(lab);
+  const cnt = document.createElement("span"); cnt.className = "cnt"; cnt.textContent = I18N[lang].cnt(h == null ? c.value : h, h == null ? null : c.value); row.appendChild(cnt);
+  const toggle = () => { open.has(c.id) ? open.delete(c.id) : open.add(c.id); render(); };
+  row.addEventListener("click", toggle);
+  row.addEventListener("keydown", (e) => { if (e.key === "Enter") toggle(); });
+  li.appendChild(row);
+  if (!isOpen && !(query && c.level === 2 && open.has(c.id))) return li;
+  if (cTake(c)) { const t = document.createElement("div"); t.className = "take"; t.textContent = cTake(c); li.appendChild(t); }
+  if (c.level === 1) {
+    const ul = document.createElement("ul");
+    for (const k of byParent.get(c.id) || []) { const e = nodeEl(k); if (e) ul.appendChild(e); }
+    li.appendChild(ul);
+  } else {
+    const list = (argsOf.get(c.id) || []).filter(matches);
+    const lim = shown.get(c.id) || PAGE;
+    const ul = document.createElement("ul"); ul.className = "args";
+    for (const a of list.slice(0, lim)) {
+      const ai = document.createElement("li");
+      const s = document.createElement("span"); highlight(s, aText(a)); ai.appendChild(s);
+      if (a.url && P.config.enable_source_link !== false) {
+        const link = document.createElement("a"); link.href = a.url; link.target = "_blank"; link.rel = "noopener"; link.textContent = I18N[lang].src; ai.appendChild(link);
+      }
+      ul.appendChild(ai);
+    }
+    li.appendChild(ul);
+    if (list.length > lim) {
+      const b = document.createElement("button"); b.className = "more"; b.textContent = I18N[lang].more(list.length - lim);
+      b.addEventListener("click", () => { shown.set(c.id, lim + 200); render(); });
+      li.appendChild(b);
+    }
+  }
+  return li;
+}
+
+function render() {
+  const root = $("root"); root.innerHTML = "";
+  for (const c of byParent.get("0") || []) { const e = nodeEl(c); if (e) root.appendChild(e); }
+}
+
+function applyLang() {
+  document.documentElement.lang = lang;
+  const t = I18N[lang];
+  $("title").textContent = t.title; document.title = t.title;
+  $("q").placeholder = t.search; $("expand").textContent = t.expand; $("collapse").textContent = t.collapse;
+  $("lang").textContent = lang === "ja" ? "EN" : "日本語";
+  $("sub").textContent = t.sub(P);
+  const f = $("foot"); f.innerHTML = ""; f.appendChild(document.createTextNode(t.foot));
+  const a = document.createElement("a"); a.href = "https://huggingface.co/datasets/nishiohirokazu/team-mirai-2025-embeddings";
+  a.textContent = "nishiohirokazu/team-mirai-2025-embeddings"; f.appendChild(a); f.appendChild(document.createTextNode(" (CC BY 4.0)"));
+  render();
+}
+
+async function main() {
+  const src = new URLSearchParams(location.search).get("data") || "../data/team-mirai-2025/public_result.json";
+  P = await (await fetch(src)).json();
+  for (const c of P.clusters) {
+    if (c.level === 0) continue;
+    const p = c.parent || "0";
+    if (!byParent.has(p)) byParent.set(p, []);
+    byParent.get(p).push(c);
+  }
+  for (const list of byParent.values()) list.sort((a, b) => b.value - a.value);
+  const maxLevel = Math.max(...P.clusters.map((c) => c.level));
+  for (const a of P.arguments) {
+    const leaf = a.cluster_ids[maxLevel];
+    if (!argsOf.has(leaf)) argsOf.set(leaf, []);
+    argsOf.get(leaf).push(a);
+  }
+  if (!(P.translations && P.translations.en)) $("lang").style.display = "none";
+  let timer = null;
+  $("q").addEventListener("input", (e) => { clearTimeout(timer); timer = setTimeout(() => { query = e.target.value.trim().toLowerCase(); render(); }, 200); });
+  $("expand").addEventListener("click", () => { for (const c of P.clusters) if (c.level > 0) open.add(c.id); render(); });
+  $("collapse").addEventListener("click", () => { open.clear(); render(); });
+  $("lang").addEventListener("click", () => { lang = lang === "ja" ? "en" : "ja"; applyLang(); });
+  applyLang();
+}
+main().catch((e) => { $("sub").textContent = "読み込みに失敗しました: " + e; });
+</script>
+</body>
+</html>

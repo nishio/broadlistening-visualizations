@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>付箋ズーム</title>
+<style>
+:root {
+  --bg: #f6f5f1; --fg: #1d1d1b; --muted: #6b6a64; --line: #d8d6ce; --accent: #2f4f7f; --panel: rgba(246,245,241,.94);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #17181a; --fg: #ecebe6; --muted: #a09f98; --line: #34363a; --accent: #8fb0e0; --panel: rgba(23,24,26,.94); }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; overflow: hidden; }
+canvas { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+canvas.drag { cursor: grabbing; }
+.top { position: fixed; left: 0; right: 0; top: 0; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+h1 { font-size: 16px; margin: 0; display: inline; }
+h1 a { color: inherit; text-decoration: none; }
+.sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.ctl { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 6px; }
+button { font: inherit; font-size: 13px; min-width: 36px; padding: 6px 10px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); border-radius: 6px; cursor: pointer; }
+.detail { position: fixed; left: 16px; bottom: 16px; max-width: min(460px, calc(100% - 90px)); padding: 10px 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; display: none; }
+.detail.on { display: block; }
+.detail .path { color: var(--muted); font-size: 11px; margin-bottom: 4px; }
+.detail a { color: var(--accent); font-size: 12px; }
+.lvl { color: var(--muted); font-size: 11px; }
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+<div class="top">
+  <h1><a href="../">←</a> <span id="title">付箋ズーム</span></h1> <span class="lvl" id="lvl"></span>
+  <div class="sub" id="sub">読み込み中…</div>
+</div>
+<div class="ctl">
+  <button id="zin" aria-label="zoom in">＋</button>
+  <button id="zout" aria-label="zoom out">－</button>
+  <button id="fit" aria-label="fit">⤢</button>
+  <button id="lang">EN</button>
+</div>
+<div class="detail" id="detail"></div>
+<script>
+"use strict";
+// 意見を 2 次元配置（arguments[].x / y）に置き、拡大率に応じて表示を切り替える（semantic zoom）。
+//   引き：上位クラスタの表札 → 中間：下位クラスタの表札 → 寄り：意見の付箋
+// 付箋は画面を付箋 1 枚ぶんの升目に割り、升目ごとに 1 枚だけ置く（中心に近い意見を優先）。
+// 寄るほど升目あたりの意見が減り、すべての意見が付箋になる。置けなかった意見は点で描く。
+const I18N = {
+  ja: { title: "付箋ズーム", lv: ["上位のまとまり", "下位のまとまり", "意見"], src: "元の提案（PR）を開く",
+        sub: (n) => `意見 ${n.toLocaleString()} 件を広聴AI の配置に置いた。ホイール・ピンチで拡大、ドラッグで移動。引くとまとまりの表札、寄ると意見の付箋になる。付箋や表札を押すと詳細。` },
+  en: { title: "Sticky-note zoom", lv: ["top-level groups", "sub-groups", "opinions"], src: "Open the source proposal (PR)",
+        sub: (n) => `${n.toLocaleString()} opinions placed on the Kouchou-AI layout. Wheel or pinch to zoom, drag to pan. Zoomed out you see group labels; zoomed in, opinion notes. Tap a note or label for details.` },
+};
+const FONT = 'system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif';
+const PALETTE = ["#f7d774", "#f4a9a8", "#a8d5ba", "#a7c7e7", "#d7b8f3", "#f9c38f", "#b5e3e0", "#e6c9a8", "#c9e4a4", "#f2b5d4"];
+const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
+let P, lang = "ja", W, H, dpr = 1;
+let tx = 0, ty = 0, k = 1, fitK = 1; // screen = world * k + t（y は上下反転）
+let A = [];        // {x, y, c1, c2, text, ten, url, id, order}
+let C1 = [], C2 = []; // {id, label, len, takeaway, ten, tten, x, y, n, color, bbox}
+let placed = [];   // 当たり判定用：{kind, ref, x, y, w, h}
+const $ = (id) => document.getElementById(id);
+
+function resize() {
+  dpr = window.devicePixelRatio || 1; W = window.innerWidth; H = window.innerHeight;
+  cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); draw();
+}
+const sx = (x) => x * k + tx, sy = (y) => -y * k + ty;
+const wx = (X) => (X - tx) / k, wy = (Y) => -(Y - ty) / k;
+
+function fit() {
+  const xs = A.map((a) => a.x), ys = A.map((a) => a.y);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const top = 70;
+  k = fitK = Math.min(W / (x1 - x0), (H - top) / (y1 - y0)) * 0.9;
+  tx = W / 2 - (x0 + x1) / 2 * k; ty = top + (H - top) / 2 + (y0 + y1) / 2 * k;
+  draw();
+}
+function zoomAt(X, Y, f) {
+  const nk = Math.max(fitK * 0.5, Math.min(fitK * 400, k * f));
+  const wx0 = wx(X), wy0 = wy(Y); k = nk; tx = X - wx0 * k; ty = Y + wy0 * k; draw();
+}
+
+function level() { const r = k / fitK; return r < 2.2 ? 0 : r < 7 ? 1 : 2; }
+const txt = (o) => (lang === "en" && o.ten) || o.text;
+const lab = (c) => (lang === "en" && c.len) || c.label;
+
+function wrap(s, maxW, maxLines) {
+  const out = []; let line = "";
+  for (const ch of s) {
+    if (ctx.measureText(line + ch).width > maxW && line) { out.push(line); line = ch; if (out.length === maxLines) break; }
+    else line += ch;
+  }
+  if (out.length < maxLines && line) out.push(line);
+  else if (out.length === maxLines && line) out[maxLines - 1] = out[maxLines - 1].slice(0, -1) + "…";
+  return out;
+}
+function note(x, y, w, h, color, lines, fontPx, bold, count) {
+  ctx.fillStyle = "rgba(0,0,0,.12)"; ctx.fillRect(x + 2, y + 2, w, h);
+  ctx.fillStyle = color; ctx.fillRect(x, y, w, h);
+  ctx.fillStyle = "#1d1d1b"; ctx.font = `${bold ? 600 : 400} ${fontPx}px ${FONT}`;
+  ctx.textBaseline = "top";
+  const lh = fontPx * 1.3, y0 = y + (h - lines.length * lh) / 2 - (count ? fontPx * 0.4 : 0);
+  lines.forEach((l, i) => ctx.fillText(l, x + 6, y0 + i * lh));
+  if (count) { ctx.font = `400 ${Math.max(10, fontPx * 0.75)}px ${FONT}`; ctx.fillStyle = "#5a5a55"; ctx.fillText(count.toLocaleString() + (lang === "ja" ? " 件" : ""), x + 6, y + h - fontPx); }
+}
+
+function draw() {
+  if (!A.length) return;
+  ctx.fillStyle = getComputedStyle(document.body).backgroundColor; ctx.fillRect(0, 0, W, H);
+  const lv = level(); placed = [];
+  $("lvl").textContent = "· " + I18N[lang].lv[lv];
+  // 点（全意見）
+  const dot = lv === 2 ? 2 : 1.6;
+  for (const a of A) {
+    const X = sx(a.x), Y = sy(a.y);
+    if (X < -5 || X > W + 5 || Y < -5 || Y > H + 5) continue;
+    ctx.fillStyle = C1[a.c1i].color; ctx.globalAlpha = lv === 2 ? 0.5 : 0.8; ctx.fillRect(X - dot / 2, Y - dot / 2, dot, dot);
+  }
+  ctx.globalAlpha = 1;
+  if (lv === 2) drawNotes(); else drawLabels(lv === 0 ? C1 : C2, lv === 0);
+}
+
+function drawLabels(list, big) {
+  // 件数の多い順に、重ならない範囲で表札を置く
+  const taken = [];
+  const fontPx = big ? 13 : 12, w = big ? 150 : 140, maxLines = 3;
+  ctx.font = `600 ${fontPx}px ${FONT}`;
+  for (const c of list) {
+    const X = sx(c.x), Y = sy(c.y);
+    ctx.font = `600 ${fontPx}px ${FONT}`; // note() が件数用に書き換えるので毎回戻す
+    const lines = wrap(lab(c), w - 12, maxLines);
+    const h = lines.length * fontPx * 1.3 + fontPx * 1.6 + 8;
+    const r = { x: X - w / 2, y: Y - h / 2, w, h };
+    if (r.x > W || r.y > H || r.x + w < 0 || r.y + h < 0) continue;
+    if (taken.some((t) => r.x < t.x + t.w && t.x < r.x + r.w && r.y < t.y + t.h && t.y < r.y + r.h)) continue;
+    taken.push(r);
+    note(r.x, r.y, w, h, c.color, lines, fontPx, true, c.n);
+    placed.push({ kind: "c", ref: c, ...r });
+  }
+}
+
+function drawNotes() {
+  const r = k / fitK;
+  const w = 128, h = 64, fontPx = 11.5;
+  ctx.font = `400 ${fontPx}px ${FONT}`;
+  const cols = Math.ceil(W / w) + 1, used = new Set();
+  // 升目は世界座標に固定（パンしても付箋が入れ替わらないように）
+  const ox = ((tx % w) + w) % w, oy = ((ty % h) + h) % h;
+  for (const a of A) { // A は中心に近い順に並べてある
+    const X = sx(a.x), Y = sy(a.y);
+    if (X < -w || X > W + w || Y < -h || Y > H + h) continue;
+    const gx = Math.floor((X - ox) / w), gy = Math.floor((Y - oy) / h);
+    const key = gx * 100003 + gy;
+    if (used.has(key)) continue;
+    used.add(key);
+    const x = gx * w + ox + 2, y = gy * h + oy + 2;
+    const lines = wrap(txt(a), w - 16, 3);
+    note(x, y, w - 4, h - 4, C1[a.c1i].color, lines, fontPx, false, 0);
+    placed.push({ kind: "a", ref: a, x, y, w: w - 4, h: h - 4 });
+  }
+}
+
+function showDetail(p) {
+  const d = $("detail"); d.innerHTML = "";
+  const path = document.createElement("div"); path.className = "path";
+  if (p.kind === "a") {
+    const a = p.ref;
+    path.textContent = lab(C1[a.c1i]) + " › " + lab(C2[a.c2i]); d.appendChild(path);
+    const t = document.createElement("div"); t.textContent = txt(a); d.appendChild(t);
+    if (lang === "en" && a.ten) { const j = document.createElement("div"); j.className = "path"; j.textContent = a.text; d.appendChild(j); }
+    if (a.url) { const l = document.createElement("a"); l.href = a.url; l.target = "_blank"; l.rel = "noopener"; l.textContent = I18N[lang].src; d.appendChild(l); }
+  } else {
+    const c = p.ref;
+    const t = document.createElement("div"); t.style.fontWeight = 600; t.textContent = lab(c) + `（${c.n.toLocaleString()}）`; d.appendChild(t);
+    const tk = (lang === "en" && c.tten) || c.takeaway;
+    if (tk) { const s = document.createElement("div"); s.className = "path"; s.style.marginTop = "4px"; s.textContent = tk; d.appendChild(s); }
+    // 表札を押したら、そのまとまりへ寄る
+    const [x0, y0, x1, y1] = c.bbox, top = 70;
+    k = Math.min(W / (x1 - x0 || 1), (H - top) / (y1 - y0 || 1)) * 0.85;
+    k = Math.max(k, fitK * (c.level === 1 ? 2.3 : 7.2));
+    tx = W / 2 - (x0 + x1) / 2 * k; ty = top + (H - top) / 2 + (y0 + y1) / 2 * k; draw();
+  }
+  d.classList.add("on");
+}
+
+// 入力：ドラッグ・ホイール・ピンチ・タップ
+const ptrs = new Map(); let moved = 0, pinch0 = null;
+cv.addEventListener("pointerdown", (e) => { cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY }); moved = 0; cv.classList.add("drag"); });
+cv.addEventListener("pointermove", (e) => {
+  if (!ptrs.has(e.pointerId)) return;
+  const prev = ptrs.get(e.pointerId); ptrs.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (ptrs.size === 1) { tx += e.clientX - prev.x; ty += e.clientY - prev.y; moved += Math.abs(e.clientX - prev.x) + Math.abs(e.clientY - prev.y); draw(); }
+  else if (ptrs.size === 2) {
+    const [p, q] = [...ptrs.values()]; const dist = Math.hypot(p.x - q.x, p.y - q.y);
+    if (pinch0) zoomAt((p.x + q.x) / 2, (p.y + q.y) / 2, dist / pinch0);
+    pinch0 = dist; moved = 99;
+  }
+});
+const up = (e) => {
+  ptrs.delete(e.pointerId); if (ptrs.size < 2) pinch0 = null; cv.classList.remove("drag");
+  if (e.type === "pointerup" && moved < 6 && ptrs.size === 0) {
+    const hit = [...placed].reverse().find((p) => e.clientX >= p.x && e.clientX <= p.x + p.w && e.clientY >= p.y && e.clientY <= p.y + p.h);
+    if (hit) showDetail(hit); else $("detail").classList.remove("on");
+  }
+};
+cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
+cv.addEventListener("wheel", (e) => { e.preventDefault(); zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
+$("zin").addEventListener("click", () => zoomAt(W / 2, H / 2, 1.6));
+$("zout").addEventListener("click", () => zoomAt(W / 2, H / 2, 1 / 1.6));
+$("fit").addEventListener("click", fit);
+$("lang").addEventListener("click", () => { lang = lang === "ja" ? "en" : "ja"; applyLang(); });
+window.addEventListener("resize", resize);
+
+function applyLang() {
+  document.documentElement.lang = lang;
+  $("title").textContent = I18N[lang].title; document.title = I18N[lang].title;
+  $("sub").textContent = I18N[lang].sub(A.length);
+  $("lang").textContent = lang === "ja" ? "EN" : "日本語";
+  $("detail").classList.remove("on"); draw();
+}
+
+async function main() {
+  const src = new URLSearchParams(location.search).get("data") || "../data/team-mirai-2025/public_result.json";
+  P = await (await fetch(src)).json();
+  const en = (P.translations && P.translations.en) || {};
+  const enC = en.clusters || {}, enA = en.arguments || {};
+  const maxLevel = Math.max(...P.clusters.map((c) => c.level));
+  const mk = (c, i) => ({ id: c.id, level: c.level, label: c.label, takeaway: c.takeaway, len: enC[c.id] && enC[c.id].label, tten: enC[c.id] && enC[c.id].takeaway, n: c.value, sx: 0, sy: 0, bbox: [Infinity, Infinity, -Infinity, -Infinity], i });
+  C1 = P.clusters.filter((c) => c.level === 1).sort((a, b) => b.value - a.value).map(mk);
+  C2 = P.clusters.filter((c) => c.level === maxLevel).sort((a, b) => b.value - a.value).map(mk);
+  C1.forEach((c, i) => { c.color = PALETTE[i % PALETTE.length]; });
+  const i1 = new Map(C1.map((c, i) => [c.id, i])), i2 = new Map(C2.map((c, i) => [c.id, i]));
+  A = P.arguments.map((a) => ({ x: a.x, y: a.y, c1i: i1.get(a.cluster_ids[1]), c2i: i2.get(a.cluster_ids[maxLevel]), text: a.argument, ten: enA[a.arg_id], url: a.url }));
+  for (const a of A) for (const c of [C1[a.c1i], C2[a.c2i]]) {
+    c.sx += a.x; c.sy += a.y;
+    c.bbox[0] = Math.min(c.bbox[0], a.x); c.bbox[1] = Math.min(c.bbox[1], a.y); c.bbox[2] = Math.max(c.bbox[2], a.x); c.bbox[3] = Math.max(c.bbox[3], a.y);
+  }
+  for (const c of [...C1, ...C2]) { const cnt = A.filter((a) => (c.level === 1 ? C1[a.c1i] : C2[a.c2i]) === c).length || 1; c.x = c.sx / cnt; c.y = c.sy / cnt; }
+  C2.forEach((c) => { c.color = PALETTE[A.find((a) => C2[a.c2i] === c)?.c1i % PALETTE.length || 0]; });
+  // 付箋を置く優先順：下位のまとまりの中心に近い意見ほど先
+  for (const a of A) { const c = C2[a.c2i]; a.d = (a.x - c.x) ** 2 + (a.y - c.y) ** 2; }
+  A.sort((p, q) => p.d - q.d);
+  if (!enC || !Object.keys(enC).length) $("lang").style.display = "none";
+  resize(); fit(); applyLang();
+}
+main().catch((e) => { $("sub").textContent = "読み込みに失敗しました: " + e; });
+</script>
+</body>
+</html>

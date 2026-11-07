@@ -11,9 +11,9 @@
 
 | 名前 | 何が見えるか | デモ | 入力 | 状態 | 本体に入れる候補か | 最終確認日 |
 |---|---|---|---|---|---|---|
-| 意見マンダラート | 意見を 8 つずつに割り、1 マスが意見 1 枚になるまで繰り返した木を、中心＋周り 8 マスの 9×9（スマホは 3×3）で降りていく。最下層から元の提案に飛べる | [mandalart/](https://nishio.github.io/broadlistening-visualizations/mandalart/) | `public_result.json`（＋任意で埋め込み） | 試作 | 未判断 | 2026-11-07 |
-| 付箋ズーム | 散布図の点を意見の本文が読める付箋にし、引くとまとまりの表札、寄ると個々の意見が読める | — | `public_result.json` | 未着手（元の試作は別 repo `canvas_kozaneba_prototype`） | 未判断 | 2026-11-07 |
-| 階層リスト（ツリー表示） | 上位のクラスタから展開して、最下層で個々の意見と出典まで辿る | 本体の公開ビューア | — | **本体に入った**（kouchou-ai PR #1166、「全部読む」詳細モード） | 済 | 2026-11-07 |
+| 意見マンダラート | 意見を 8 つずつに割り、1 マスが意見 1 枚になるまで繰り返した木を、中心＋周り 8 マスで降りていく（既定は 3×3、9×9 で周り 8 マスの中身も見える）。最下層から元の提案に飛べる | [mandalart/](https://nishio.github.io/broadlistening-visualizations/mandalart/) | `public_result.json`（＋任意で埋め込み）から作った木 | 試作 | 未判断 | 2026-11-07 |
+| 付箋ズーム | 2 次元配置の上で、引くとまとまりの表札、寄ると意見の付箋。付箋は画面の升目ごとに 1 枚（中心に近い意見を優先）なので、寄るほど多くの意見が付箋になる | [sticky/](https://nishio.github.io/broadlistening-visualizations/sticky/) | `public_result.json` | 試作（発想の元は別 repo `canvas_kozaneba_prototype`） | 未判断 | 2026-11-07 |
+| 階層リスト（ツリー表示） | 上位のクラスタから展開して、最下層で個々の意見と出典まで辿る。検索つき | [tree/](https://nishio.github.io/broadlistening-visualizations/tree/) | `public_result.json` | **本体に入った**（kouchou-ai PR #1166、「全部読む」詳細モード）。ここは単体版 | 済 | 2026-11-07 |
 
 各項目の「最終確認日」は、その可視化が今の入力データと手元の手順で動くことを最後に確かめた日。古くなったら確かめ直すか、状態を書き換える。
 
@@ -38,21 +38,20 @@
 # 1. データを取る（--embeddings で 1536 次元の埋め込みも。約 120MB）
 uv run scripts/fetch_team_mirai.py --embeddings
 
-# 2. public_result.json の形に変換
-uv run scripts/team_mirai_to_public_result.py
-# -> data/team-mirai-2025/public_result.json
+# 2. public_result.json の形に変換（付箋ズームと階層リストはこれをそのまま読む）
+uv run scripts/team_mirai_to_public_result.py --out docs/data/team-mirai-2025/public_result.json
 
 # 3. マンダラート用の木を作る（約 30 秒）
-uv run scripts/build_mandalart_tree.py data/team-mirai-2025/public_result.json \
+uv run scripts/build_mandalart_tree.py docs/data/team-mirai-2025/public_result.json \
     --embeddings data/team-mirai-2025/kouchou-ai-embeddings-1536dim.parquet \
     --out docs/mandalart/team-mirai-2025.json
 
 # 4. 見る
 cd docs && python3 -m http.server 8000
-# -> http://localhost:8000/mandalart/
+# -> http://localhost:8000/  （mandalart/ ・ sticky/ ・ tree/）
 ```
 
-広聴AI で作った自分のレポートで描くときは、出力ディレクトリの `public_result.json` を 3 に渡す（`--embeddings` を省くと 2 次元配置で割る）。ページは `?data=<json のパス>` で別のデータを読める。
+広聴AI で作った自分のレポートで描くときは、出力ディレクトリの `public_result.json` を使う。付箋ズームと階層リストは `?data=<public_result.json の URL>` でそのまま読める。マンダラートは 3 に渡して木を作り、`?data=<木の json>` で読む（`--embeddings` を省くと 2 次元配置で割る）。
 
 ## 意見マンダラートの作り
 
@@ -69,4 +68,4 @@ cd docs && python3 -m http.server 8000
 ## ライセンス
 
 - コード：MIT（[LICENSE](LICENSE)）
-- データ（`docs/*/team-mirai-2025.json`）：CC BY 4.0。出典は上記のとおり
+- データ（`docs/data/` と `docs/mandalart/team-mirai-2025.json`）：CC BY 4.0。出典は上記のとおり
