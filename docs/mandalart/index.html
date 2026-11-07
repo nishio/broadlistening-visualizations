@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>意見マンダラート</title>
+<style>
+:root {
+  --bg: #f6f5f1; --fg: #1d1d1b; --muted: #6b6a64; --line: #d8d6ce;
+  --node: #e8eef7; --node-hi: #d3e0f2; --center: #2f4f7f; --center-fg: #fff;
+  --block-center: #c6d6ee; --arg: #fffdf6; --arg-line: #e6dfc4; --accent: #2f4f7f;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17181a; --fg: #ecebe6; --muted: #a09f98; --line: #34363a;
+    --node: #1f2a3a; --node-hi: #2a3a52; --center: #8fb0e0; --center-fg: #10151d;
+    --block-center: #34496a; --arg: #24231f; --arg-line: #3d3a30; --accent: #8fb0e0;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.45 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+header { padding: 12px 16px 4px; }
+h1 { font-size: 17px; margin: 0 0 2px; }
+.sub { color: var(--muted); font-size: 12px; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 6px 16px; }
+.crumbs { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 4px; font-size: 12px; color: var(--muted); }
+.crumbs a { color: var(--accent); cursor: pointer; text-decoration: none; max-width: 16em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.crumbs a:hover { text-decoration: underline; }
+button { font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; cursor: pointer; }
+button[aria-pressed="true"] { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+main { padding: 4px 16px 24px; }
+.board { display: grid; gap: 6px; max-width: 1100px; margin: 0 auto; }
+.board.nine { grid-template-columns: repeat(3, 1fr); }
+.block { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
+.board.three { grid-template-columns: 1fr; max-width: 640px; }
+.cell { position: relative; min-height: 64px; aspect-ratio: 1 / 1; padding: 5px; border-radius: 4px; overflow: hidden; font-size: 11px; line-height: 1.35; cursor: pointer; display: flex; flex-direction: column; justify-content: center; text-align: center; }
+.three .cell { font-size: 13px; min-height: 90px; padding: 8px; }
+.cell .t { display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+.cell .n { position: absolute; right: 4px; bottom: 2px; font-size: 10px; color: var(--muted); }
+.cell.node { background: var(--node); }
+.cell.node:hover { background: var(--node-hi); }
+.cell.arg { background: var(--arg); border: 1px solid var(--arg-line); }
+.cell.arg::before { content: "意見"; position: absolute; left: 4px; top: 2px; font-size: 9px; color: var(--muted); }
+html[lang="en"] .cell.arg::before { content: "opinion"; }
+.cell.empty { background: transparent; cursor: default; }
+.cell.bc { background: var(--block-center); font-weight: 600; }
+.cell.root { background: var(--center); color: var(--center-fg); font-weight: 700; }
+.cell.root .n { color: var(--center-fg); opacity: .8; }
+.cell:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.detail { max-width: 1100px; margin: 12px auto 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 6px; display: none; }
+.detail.on { display: block; }
+.detail a { color: var(--accent); }
+footer { padding: 8px 16px 24px; color: var(--muted); font-size: 11px; max-width: 1132px; margin: 0 auto; }
+footer a { color: var(--accent); }
+@media (max-width: 720px) { .cell { font-size: 10px; padding: 3px; } .cell .t { -webkit-line-clamp: 4; } }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title">意見マンダラート</h1>
+  <div class="sub" id="sub">読み込み中…</div>
+</header>
+<div class="bar">
+  <div class="crumbs" id="crumbs"></div>
+  <button id="up">↑ <span data-i18n="up">上へ</span></button>
+  <button id="mode9" aria-pressed="true">9×9</button>
+  <button id="mode3" aria-pressed="false">3×3</button>
+  <button id="lang">EN</button>
+</div>
+<main>
+  <div class="board nine" id="board"></div>
+  <div class="detail" id="detail"></div>
+</main>
+<footer id="foot"></footer>
+<script>
+"use strict";
+const I18N = {
+  ja: { up: "上へ", opinions: "件", source: "元の提案（PR）を開く", root: "全体",
+        sub: (m) => `意見 ${m.n_arguments.toLocaleString()} 件を 8 つずつに割り、1 マスが意見 1 枚になるまで繰り返した木（${m.n_nodes.toLocaleString()} 節・最大 ${m.max_depth} 段）。表札は各まとまりの中心に最も近い意見。マスを押すとそこへ降り、中心を押すと上へ戻る。`,
+        foot: "出典：チームみらい・しゃべれるマニフェスト参加者 / データセット " },
+  en: { up: "Up", opinions: "", source: "Open the source proposal (PR)", root: "All",
+        sub: (m) => `${m.n_arguments.toLocaleString()} opinions split into at most 8 groups, repeatedly, until each cell holds one opinion (${m.n_nodes.toLocaleString()} nodes, depth up to ${m.max_depth}). Each group is labelled with the opinion closest to its centre. Click a cell to go down; click the centre to go up.`,
+        foot: "Source: Team Mirai and the participants of Shabereru Manifesto / dataset " },
+};
+const POS = [0, 1, 2, 5, 8, 7, 6, 3]; // 3×3 の周りのマスを左上から時計回りに
+let T = null, lang = "ja", mode = window.innerWidth < 720 ? 3 : 9, parentOf = [];
+
+const $ = (id) => document.getElementById(id);
+const txt = (i) => (lang === "en" && T.args.text_en && T.args.text_en[i]) || T.args.text[i];
+const nodeLabel = (id) => (id === 0 && T.meta.title && lang === "ja") ? T.meta.title : (id === 0 ? I18N[lang].root : txt(T.nodes[id].l));
+const parseRef = (r) => ({ kind: r[0], i: +r.slice(1) });
+
+function cellEl(cls, label, count, onClick, title) {
+  const d = document.createElement("div");
+  d.className = "cell " + cls;
+  if (label != null) {
+    const t = document.createElement("div"); t.className = "t"; t.textContent = label; d.appendChild(t);
+    d.title = title || label;
+  }
+  if (count != null) { const n = document.createElement("div"); n.className = "n"; n.textContent = count.toLocaleString() + I18N[lang].opinions; d.appendChild(n); }
+  if (onClick) { d.tabIndex = 0; d.addEventListener("click", onClick); d.addEventListener("keydown", (e) => { if (e.key === "Enter") onClick(); }); }
+  return d;
+}
+
+function refCell(ref, extraCls, goTo) {
+  if (!ref) return cellEl("empty", null, null, null);
+  const r = parseRef(ref);
+  if (r.kind === "a") return cellEl("arg " + (extraCls || ""), txt(r.i), null, () => showArg(r.i));
+  const n = T.nodes[r.i];
+  return cellEl("node " + (extraCls || ""), txt(n.l), n.s, () => go(goTo != null ? goTo : r.i));
+}
+
+function block(centerEl, refs, goTo) {
+  const b = document.createElement("div"); b.className = "block";
+  const cells = new Array(9);
+  cells[4] = centerEl;
+  POS.forEach((p, k) => { cells[p] = refCell(refs[k], "", goTo); });
+  cells.forEach((c) => b.appendChild(c));
+  return b;
+}
+
+function render(id) {
+  const node = T.nodes[id];
+  const board = $("board");
+  board.innerHTML = "";
+  board.className = "board " + (mode === 9 ? "nine" : "three");
+  $("detail").classList.remove("on");
+  const center = cellEl("root", nodeLabel(id), node.s, id === 0 ? null : () => go(parentOf[id]));
+  if (mode === 3) {
+    board.appendChild(block(center, node.c));
+  } else {
+    const blocks = new Array(9);
+    blocks[4] = block(center, node.c);
+    POS.forEach((p, k) => {
+      const ref = node.c[k];
+      if (!ref) { blocks[p] = block(cellEl("empty"), []); return; }
+      const r = parseRef(ref);
+      if (r.kind === "a") { blocks[p] = block(cellEl("arg bc", txt(r.i), null, () => showArg(r.i)), []); return; }
+      const child = T.nodes[r.i];
+      blocks[p] = block(cellEl("bc", txt(child.l), child.s, () => go(r.i)), child.c, r.i);
+    });
+    blocks.forEach((b) => board.appendChild(b));
+  }
+  renderCrumbs(id);
+  $("up").disabled = id === 0;
+}
+
+function renderCrumbs(id) {
+  const path = [];
+  for (let c = id; c != null; c = parentOf[c]) path.unshift(c);
+  const el = $("crumbs"); el.innerHTML = "";
+  path.forEach((c, k) => {
+    if (k) el.appendChild(document.createTextNode("›"));
+    const a = document.createElement("a"); a.textContent = nodeLabel(c); a.title = nodeLabel(c);
+    a.addEventListener("click", () => go(c)); el.appendChild(a);
+  });
+}
+
+function showArg(i) {
+  const d = $("detail"); d.innerHTML = "";
+  const p = document.createElement("div"); p.textContent = txt(i); d.appendChild(p);
+  if (lang === "en" && T.args.text_en && T.args.text_en[i]) {
+    const ja = document.createElement("div"); ja.className = "sub"; ja.textContent = T.args.text[i]; d.appendChild(ja);
+  }
+  const url = T.args.url[i];
+  if (url) { const a = document.createElement("a"); a.href = url; a.target = "_blank"; a.rel = "noopener"; a.textContent = I18N[lang].source; d.appendChild(a); }
+  d.classList.add("on");
+  d.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
+let current = 0;
+function go(id) { current = id; history.replaceState(null, "", "#n" + id); render(id); }
+
+function applyLang() {
+  document.documentElement.lang = lang;
+  $("lang").textContent = lang === "ja" ? "EN" : "日本語";
+  document.querySelectorAll("[data-i18n]").forEach((e) => { e.textContent = I18N[lang][e.dataset.i18n]; });
+  $("title").textContent = lang === "ja" ? "意見マンダラート" : "Opinion Mandala Chart";
+  $("sub").textContent = I18N[lang].sub(T.meta);
+  const f = $("foot"); f.innerHTML = "";
+  f.appendChild(document.createTextNode(I18N[lang].foot));
+  const a = document.createElement("a"); a.href = "https://huggingface.co/datasets/nishiohirokazu/team-mirai-2025-embeddings";
+  a.textContent = "nishiohirokazu/team-mirai-2025-embeddings"; f.appendChild(a);
+  f.appendChild(document.createTextNode(" (CC BY 4.0) · " + T.meta.space + " · seed " + T.meta.seed + " · " + T.meta.built));
+  render(current);
+}
+
+function setMode(m) { mode = m; $("mode9").setAttribute("aria-pressed", m === 9); $("mode3").setAttribute("aria-pressed", m === 3); render(current); }
+
+async function main() {
+  const src = new URLSearchParams(location.search).get("data") || "team-mirai-2025.json";
+  T = await (await fetch(src)).json();
+  parentOf = new Array(T.nodes.length).fill(null);
+  T.nodes.forEach((n, i) => n.c.forEach((r) => { if (r[0] === "n") parentOf[+r.slice(1)] = i; }));
+  if (!T.args.text_en) $("lang").style.display = "none";
+  const m = location.hash.match(/^#n(\d+)$/);
+  current = m && T.nodes[+m[1]] ? +m[1] : 0;
+  $("up").addEventListener("click", () => { if (parentOf[current] != null) go(parentOf[current]); });
+  $("mode9").addEventListener("click", () => setMode(9));
+  $("mode3").addEventListener("click", () => setMode(3));
+  $("lang").addEventListener("click", () => { lang = lang === "ja" ? "en" : "ja"; applyLang(); });
+  setMode(mode);
+  applyLang();
+}
+main().catch((e) => { $("sub").textContent = "読み込みに失敗しました: " + e; });
+</script>
+</body>
+</html>

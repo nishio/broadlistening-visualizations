@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>広聴AI 可視化カタログ</title>
+<style>
+:root { --bg: #f6f5f1; --fg: #1d1d1b; --muted: #6b6a64; --line: #d8d6ce; --accent: #2f4f7f; }
+@media (prefers-color-scheme: dark) { :root { --bg: #17181a; --fg: #ecebe6; --muted: #a09f98; --line: #34363a; --accent: #8fb0e0; } }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.6 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+main { max-width: 760px; margin: 0 auto; padding: 24px 16px 48px; }
+h1 { font-size: 20px; margin: 0 0 4px; }
+p.lead { color: var(--muted); margin: 0 0 20px; }
+.item { border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; margin-bottom: 12px; }
+.item h2 { font-size: 16px; margin: 0 0 4px; }
+.item h2 a { color: var(--accent); }
+.meta { font-size: 12px; color: var(--muted); }
+a { color: var(--accent); }
+footer { font-size: 12px; color: var(--muted); margin-top: 24px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>広聴AI 可視化カタログ</h1>
+  <p class="lead">広聴AI の分析結果（<code>public_result.json</code>）を散布図以外で描く試作。ここで試して、使われたものだけを本体に入れるか判断する。</p>
+
+  <div class="item">
+    <h2><a href="mandalart/">意見マンダラート</a></h2>
+    <div>意見を 8 つずつに割り、1 マスが意見 1 枚になるまで繰り返した木を、中心＋周り 8 マスで降りていく。最下層から元の提案に飛べる。日本語・英語。</div>
+    <div class="meta">状態：試作 · 最終確認日：2026-11-07 · データ：チームみらい 2025（意見 21,348 件）</div>
+  </div>
+
+  <div class="item">
+    <h2>付箋ズーム</h2>
+    <div>散布図の点を意見の本文が読める付箋にし、引くとまとまりの表札、寄ると個々の意見が読める。</div>
+    <div class="meta">状態：未着手 · 最終確認日：2026-11-07</div>
+  </div>
+
+  <div class="item">
+    <h2>階層リスト（ツリー表示）</h2>
+    <div>上位のクラスタから展開して、最下層で個々の意見と出典まで辿る。kouchou-ai 本体の公開ビューアに「全部読む」詳細モードとして入った。</div>
+    <div class="meta">状態：本体に入った · 最終確認日：2026-11-07</div>
+  </div>
+
+  <footer>
+    データ出典：チームみらい・しゃべれるマニフェスト参加者 / データセット
+    <a href="https://huggingface.co/datasets/nishiohirokazu/team-mirai-2025-embeddings">nishiohirokazu/team-mirai-2025-embeddings</a>（CC BY 4.0）·
+    <a href="https://github.com/nishio/broadlistening-visualizations">ソースコード</a>
+  </footer>
+</main>
+</body>
+</html>
