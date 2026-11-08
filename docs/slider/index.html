@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>賛否スライダー</title>
+<style>
+:root {
+  --bg: #f6f5f1; --surface: #fcfcfb; --fg: #1d1d1b; --muted: #6b6a64; --line: #d8d6ce; --accent: #2f4f7f;
+  --for: #2a78d6; --against: #e34948; --mid: #a8a69f; --na: #cfcdc6; --s1: #2a78d6; --s2: #eb6834;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17181a; --surface: #1a1a19; --fg: #ecebe6; --muted: #a09f98; --line: #34363a; --accent: #8fb0e0;
+    --for: #3987e5; --against: #e66767; --mid: #77756f; --na: #3f3f3b; --s1: #3987e5; --s2: #d95926;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.55 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+header, .bar, main, footer { max-width: 1180px; margin: 0 auto; padding-left: 16px; padding-right: 16px; }
+header { padding-top: 12px; }
+h1 { font-size: 17px; margin: 0 0 2px; }
+h1 a { color: inherit; text-decoration: none; }
+.sub { color: var(--muted); font-size: 12px; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-top: 8px; padding-bottom: 8px; }
+select { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg); flex: 1 1 320px; max-width: 100%; }
+button { font: inherit; font-size: 13px; white-space: nowrap; padding: 5px 12px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); color: var(--fg); cursor: pointer; }
+.target { font-size: 15px; margin: 4px 0 8px; }
+.target b { font-weight: 600; }
+.layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; }
+.plot { position: relative; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; aspect-ratio: 4 / 3; }
+canvas { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 12px; max-width: 280px; box-shadow: 0 2px 8px rgba(0,0,0,.12); display: none; }
+.tip .sc { color: var(--muted); }
+.side { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.panel h2 { font-size: 13px; margin: 0 0 6px; }
+.wrow { display: flex; align-items: center; gap: 8px; }
+.wrow input { flex: 1; accent-color: var(--accent); }
+.wval { font-variant-numeric: tabular-nums; font-weight: 600; min-width: 3.2em; text-align: right; }
+.legend { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.ramp { height: 10px; border-radius: 3px; background: linear-gradient(to right, var(--against), var(--mid), var(--for)); margin: 4px 0 2px; }
+.ramp-l { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+.nums { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.nums b { font-weight: 600; }
+svg text { font: 10px system-ui, sans-serif; fill: var(--muted); }
+.chart-key { display: flex; gap: 12px; font-size: 11px; color: var(--muted); margin-bottom: 2px; }
+.chart-key i { display: inline-block; width: 12px; height: 2px; vertical-align: middle; margin-right: 4px; }
+.detail { font-size: 13px; min-height: 3em; }
+.detail .sc { color: var(--muted); font-size: 12px; }
+.detail a { color: var(--accent); font-size: 12px; }
+.note { color: var(--muted); font-size: 12px; margin: 12px 0 0; }
+footer { padding-top: 8px; padding-bottom: 24px; color: var(--muted); font-size: 11px; }
+footer a, .note a { color: var(--accent); }
+@media (max-width: 820px) { .layout { grid-template-columns: 1fr; } .plot { aspect-ratio: 1 / 1; } }
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="../">←</a> 賛否スライダー</h1>
+  <div class="sub" id="sub">読み込み中…</div>
+</header>
+<div class="bar">
+  <select id="preset" aria-label="まとまり"></select>
+</div>
+<main>
+  <div class="target" id="target"></div>
+  <div class="layout">
+    <div class="plot" id="plot"><canvas id="cv"></canvas><div class="tip" id="tip"></div></div>
+    <div class="side">
+      <div class="panel">
+        <h2>賛否の重み</h2>
+        <div class="wrow">
+          <input type="range" id="w" min="0" max="1.5" step="0.01" value="0" aria-label="賛否の重み">
+          <span class="wval" id="wval">0.00</span>
+        </div>
+        <div class="wrow" style="margin-top:6px"><button id="play">▶ 動かす</button><span class="sub">重み 0 は意味の近さだけの配置（このまとまりだけで UMAP をかけ直したもの）</span></div>
+      </div>
+      <div class="panel">
+        <h2>色</h2>
+        <div class="ramp"></div>
+        <div class="ramp-l"><span>反対 −1</span><span>0</span><span>賛成 +1</span></div>
+        <div class="legend" style="margin-top:6px"><span><i class="dot" style="background:var(--na)"></i>判定不能（対象への賛否が読み取れない。重み 0 と同じ扱い）</span></div>
+      </div>
+      <div class="panel">
+        <h2>分かれ方と、話題の近さ</h2>
+        <div class="chart-key"><span><i style="background:var(--s1)"></i>賛否の分かれ</span><span><i style="background:var(--s2)"></i>話題の近さの残り</span></div>
+        <svg id="chart" viewBox="0 0 276 120" width="100%" role="img" aria-label="重みごとの賛否の分かれと話題の近さの残り"></svg>
+        <div class="nums" id="nums"></div>
+      </div>
+      <div class="panel"><h2>意見</h2><div class="detail" id="detail"><span class="sub">点にマウスを乗せる・押すと意見が出る</span></div></div>
+    </div>
+  </div>
+  <p class="note">
+    賛否スコアは LLM の判定で、人手では確かめていない。対象の書き方で結果が変わる。
+    「賛否の分かれ」は賛成（+0.2 より大きい）と反対（−0.2 より小さい）を 2 群とした 2 次元でのシルエット係数、
+    「話題の近さの残り」は重み 0 の埋め込みで近い 15 件のうち、2 次元配置でも近い 15 件に入っている割合。
+    重みを上げると賛否で分かれる代わりに、話題の近さが崩れていく。
+  </p>
+</main>
+<footer id="foot"></footer>
+<script>
+"use strict";
+// 重みごとの 2 次元配置は scripts/build_stance_slider.py で事前に計算してある（元は tokoroten の sentiment-weighted UMAP）。
+// ここでは重みの段のあいだを線形補間して描くだけ。賛否スコアは public_result.json の attributes.stance_score を読む。
+const PRESETS = [
+  { id: "1_13", label: "エネルギー（原子力の活用への賛否）" },
+  { id: "1_1", label: "家族（選択的夫婦別姓・同性婚など選択肢を広げることへの賛否）" },
+  { id: "1_20", label: "移民と外国人（受け入れを広げることへの賛否）" },
+  { id: "1_19", label: "皇位継承（女性天皇・女系天皇を認めることへの賛否）" },
+];
+const $ = (id) => document.getElementById(id);
+const cv = $("cv"), ctx = cv.getContext("2d");
+let P, L, pts = [], W = 0, H = 0, dpr = 1, wNow = 0, bbox, hover = -1, picked = -1, playing = null;
+const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+function hexToRgb(h) { const n = parseInt(h.replace("#", ""), 16); return [n >> 16 & 255, n >> 8 & 255, n & 255]; }
+function mix(a, b, t) { return a.map((v, i) => Math.round(v + (b[i] - v) * t)); }
+let COL;
+function colors() { COL = { for: hexToRgb(css("--for")), against: hexToRgb(css("--against")), mid: hexToRgb(css("--mid")), na: css("--na"), fg: css("--fg"), surface: css("--surface") }; }
+function colorOf(s) {
+  if (s == null) return COL.na;
+  const c = s >= 0 ? mix(COL.mid, COL.for, Math.min(1, s)) : mix(COL.mid, COL.against, Math.min(1, -s));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+
+// 重み w での位置：前後の段を線形補間
+function frameAt(w) {
+  const F = L.frames, step = F[1].w - F[0].w, f = Math.max(0, Math.min(F.length - 1, w / step));
+  const i = Math.min(F.length - 2, Math.floor(f)), t = f - i;
+  return { i, t, a: F[i], b: F[i + 1] };
+}
+function lerp(a, b, t) { return a + (b - a) * t; }
+
+function resize() {
+  const r = $("plot").getBoundingClientRect(); dpr = window.devicePixelRatio || 1; W = r.width; H = r.height;
+  cv.width = W * dpr; cv.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); draw();
+}
+function toScreen(x, y) {
+  const pad = 14, sx = (W - pad * 2) / (bbox.x1 - bbox.x0), sy = (H - pad * 2) / (bbox.y1 - bbox.y0), k = Math.min(sx, sy);
+  const ox = (W - (bbox.x1 - bbox.x0) * k) / 2, oy = (H - (bbox.y1 - bbox.y0) * k) / 2;
+  return [ox + (x - bbox.x0) * k, oy + (bbox.y1 - y) * k];
+}
+
+function draw() {
+  if (!L) return;
+  const { a, b, t } = frameAt(wNow);
+  ctx.clearRect(0, 0, W, H);
+  // 判定不能 → 弱い賛否 → 強い賛否の順に描き、強い点が上に来るようにする
+  for (const p of pts) { p.X = lerp(a.x[p.k], b.x[p.k], t); p.Y = lerp(a.y[p.k], b.y[p.k], t); [p.sx, p.sy] = toScreen(p.X, p.Y); }
+  for (const p of pts.slice().sort((u, v) => (u.s == null ? -1 : Math.abs(u.s)) - (v.s == null ? -1 : Math.abs(v.s)))) {
+    const r = p.s == null ? 2.5 : 4;
+    ctx.beginPath(); ctx.arc(p.sx, p.sy, r, 0, Math.PI * 2);
+    ctx.fillStyle = colorOf(p.s); ctx.fill();
+    if (p.s != null) { ctx.lineWidth = 1; ctx.strokeStyle = COL.surface; ctx.stroke(); }  // 重なりに地の色の縁
+  }
+  for (const k of [picked, hover]) if (k >= 0) {
+    const p = pts[k]; ctx.beginPath(); ctx.arc(p.sx, p.sy, 7, 0, Math.PI * 2); ctx.lineWidth = 2; ctx.strokeStyle = COL.fg; ctx.stroke();
+  }
+  $("wval").textContent = wNow.toFixed(2);
+  const sep = a.sep == null ? null : lerp(a.sep, b.sep, t), keep = lerp(a.keep, b.keep, t);
+  $("nums").innerHTML = "";
+  [["賛否の分かれ", sep == null ? "—" : sep.toFixed(2)], ["話題の近さの残り", keep.toFixed(2)]].forEach(([k, v]) => {
+    const x = document.createElement("span"); x.textContent = k; const y = document.createElement("b"); y.textContent = v; $("nums").append(x, y);
+  });
+  drawChart();
+}
+
+// 小さな折れ線：横軸が重み、縦軸 0〜1 の 1 本。今の重みに縦線
+function drawChart() {
+  const svg = $("chart"), F = L.frames, w0 = 22, w1 = 268, h0 = 8, h1 = 100, maxW = F[F.length - 1].w;
+  const X = (w) => w0 + (w1 - w0) * w / maxW, Y = (v) => h1 - (h1 - h0) * Math.max(0, Math.min(1, v));
+  const line = (key) => F.filter((f) => f[key] != null).map((f, i) => `${i ? "L" : "M"}${X(f.w).toFixed(1)},${Y(f[key]).toFixed(1)}`).join("");
+  const last = F[F.length - 1];
+  svg.innerHTML = `
+    <line x1="${w0}" x2="${w1}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--line)"/>
+    <line x1="${w0}" x2="${w1}" y1="${Y(0.5)}" y2="${Y(0.5)}" stroke="var(--line)" stroke-dasharray="2 3"/>
+    <line x1="${w0}" x2="${w1}" y1="${Y(1)}" y2="${Y(1)}" stroke="var(--line)" stroke-dasharray="2 3"/>
+    <text x="${w0 - 4}" y="${Y(0) + 3}" text-anchor="end">0</text><text x="${w0 - 4}" y="${Y(0.5) + 3}" text-anchor="end">0.5</text><text x="${w0 - 4}" y="${Y(1) + 3}" text-anchor="end">1</text>
+    <text x="${w0}" y="116">重み 0</text><text x="${w1}" y="116" text-anchor="end">${maxW}</text>
+    <path d="${line("sep")}" fill="none" stroke="var(--s1)" stroke-width="2" stroke-linejoin="round"/>
+    <path d="${line("keep")}" fill="none" stroke="var(--s2)" stroke-width="2" stroke-linejoin="round"/>
+    ${last.sep != null ? `<text x="${w1}" y="${Y(last.sep) - 4}" text-anchor="end">分かれ</text>` : ""}
+    <text x="${w1}" y="${Y(last.keep) + 12}" text-anchor="end">近さ</text>
+    <line x1="${X(wNow)}" x2="${X(wNow)}" y1="${h0}" y2="${h1}" stroke="var(--fg)" stroke-width="1"/>
+    <rect x="${w0}" y="0" width="${w1 - w0}" height="${h1}" fill="transparent" id="chartHit" style="cursor:pointer"/>`;
+  const hit = svg.querySelector("#chartHit");
+  const setFrom = (e) => { const r = svg.getBoundingClientRect(), x = (e.clientX - r.left) / r.width * 276; setW(Math.max(0, Math.min(maxW, (x - w0) / (w1 - w0) * maxW))); };
+  hit.addEventListener("pointerdown", (e) => { stop(); setFrom(e); hit.setPointerCapture(e.pointerId); });
+  hit.addEventListener("pointermove", (e) => { if (e.buttons) setFrom(e); });
+}
+
+function setW(w) { wNow = Math.round(w * 100) / 100; $("w").value = wNow; draw(); }
+function stop() { if (playing) { cancelAnimationFrame(playing); playing = null; $("play").textContent = "▶ 動かす"; } }
+function play() {
+  if (playing) return stop();
+  const maxW = L.frames[L.frames.length - 1].w, T = 6000; let t0 = null, from = wNow >= maxW ? 0 : wNow;
+  $("play").textContent = "■ 止める";
+  const tick = (ts) => { if (t0 == null) t0 = ts; const w = from + (ts - t0) / T * maxW; if (w >= maxW) { setW(maxW); stop(); return; } setW(w); playing = requestAnimationFrame(tick); };
+  playing = requestAnimationFrame(tick);
+}
+
+function nearest(e) {
+  const r = cv.getBoundingClientRect(), x = e.clientX - r.left, y = e.clientY - r.top;
+  let best = -1, bd = 12 * 12;
+  pts.forEach((p, k) => { const d = (p.sx - x) ** 2 + (p.sy - y) ** 2; if (d < bd) { bd = d; best = k; } });
+  return { k: best, x, y };
+}
+function showDetail(k, el) {
+  el.innerHTML = "";
+  if (k < 0) return;
+  const p = pts[k], t = document.createElement("div"); t.textContent = p.a.argument; el.appendChild(t);
+  const s = document.createElement("div"); s.className = "sc";
+  s.textContent = p.s == null ? "賛否：判定不能" : `賛否スコア ${p.s > 0 ? "+" : ""}${p.s.toFixed(2)}`; el.appendChild(s);
+  return p;
+}
+cv.addEventListener("pointermove", (e) => {
+  const { k, x, y } = nearest(e); hover = k; const tip = $("tip");
+  if (k >= 0) { showDetail(k, tip); tip.style.display = "block"; tip.style.left = Math.min(x + 12, W - 290) + "px"; tip.style.top = (y + 12) + "px"; }
+  else tip.style.display = "none";
+  draw();
+});
+cv.addEventListener("pointerleave", () => { hover = -1; $("tip").style.display = "none"; draw(); });
+cv.addEventListener("click", (e) => {
+  const { k } = nearest(e); picked = k; const d = $("detail");
+  if (k < 0) { d.innerHTML = '<span class="sub">点にマウスを乗せる・押すと意見が出る</span>'; draw(); return; }
+  const p = showDetail(k, d);
+  if (p.a.url) { const a = document.createElement("a"); a.href = p.a.url; a.target = "_blank"; a.rel = "noopener"; a.textContent = "元の提案を開く"; d.appendChild(a); }
+  draw();
+});
+
+async function load(dataUrl, layoutUrl) {
+  stop();
+  [P, L] = await Promise.all([fetch(dataUrl).then((r) => r.json()), fetch(layoutUrl).then((r) => r.json())]);
+  const byId = new Map(P.arguments.map((a) => [a.arg_id, a]));
+  pts = L.arg_ids.map((id, k) => { const a = byId.get(id); const s = a && a.attributes && typeof a.attributes.stance_score === "number" ? a.attributes.stance_score : null; return { k, a, s }; }).filter((p) => p.a);
+  bbox = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity };
+  for (const f of L.frames) for (let i = 0; i < f.x.length; i++) {
+    bbox.x0 = Math.min(bbox.x0, f.x[i]); bbox.x1 = Math.max(bbox.x1, f.x[i]); bbox.y0 = Math.min(bbox.y0, f.y[i]); bbox.y1 = Math.max(bbox.y1, f.y[i]);
+  }
+  const m = L.meta, maxW = L.frames[L.frames.length - 1].w;
+  $("w").max = maxW; hover = picked = -1;
+  $("target").innerHTML = ""; const b = document.createElement("b"); b.textContent = `「${m.target}」`;
+  $("target").append("対象：", b, `への賛否（賛成 ${m.n_for} 件・反対 ${m.n_against} 件・判定不能 ${m.n_arguments - m.n_scored} 件 / 意見 ${m.n_arguments} 件）`);
+  $("detail").innerHTML = '<span class="sub">点にマウスを乗せる・押すと意見が出る</span>';
+  setW(Math.min(wNow, maxW));
+}
+
+async function main() {
+  colors();
+  const q = new URLSearchParams(location.search), sel = $("preset");
+  $("sub").textContent = "意見ごとの賛否スコア（−1〜+1）に重みを掛けて埋め込みに 1 次元足し、UMAP で 2 次元にした配置を、重みを変えながら見る。重み 0 は意味の近さだけの配置で、重みを上げるほど同じ話題の賛成と反対が離れる。重みの段ごとに前の配置を初期値にして重ねてあるので、点は跳ばずに動く（賛否の次元が効いて近い意見が入れ替わる点だけは大きく動く）。";
+  if (q.get("data") && q.get("layout")) { sel.style.display = "none"; await load(q.get("data"), q.get("layout")); }
+  else {
+    PRESETS.forEach((p) => { const o = document.createElement("option"); o.value = p.id; o.textContent = p.label; sel.appendChild(o); });
+    const go = (id) => { sel.value = id; history.replaceState(null, "", "#" + id); return load(`../data/team-mirai-2025-stance/${id}/public_result.json`, `team-mirai-2025-${id}.json`); };
+    sel.addEventListener("change", () => go(sel.value));
+    await go(PRESETS.some((p) => p.id === location.hash.slice(1)) ? location.hash.slice(1) : PRESETS[0].id);
+  }
+  $("w").addEventListener("input", () => { stop(); setW(+$("w").value); });
+  $("play").addEventListener("click", play);
+  new ResizeObserver(resize).observe($("plot"));
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { colors(); draw(); });
+  const f = $("foot");
+  f.append("出典：チームみらい・しゃべれるマニフェスト参加者 / データセット ");
+  const a = document.createElement("a"); a.href = "https://huggingface.co/datasets/nishiohirokazu/team-mirai-2025-embeddings"; a.textContent = "nishiohirokazu/team-mirai-2025-embeddings"; f.appendChild(a);
+  f.append(" (CC BY 4.0) · 手法：tokoroten の ");
+  const b = document.createElement("a"); b.href = "https://sentiment-weighted-umap-animation.netlify.app/"; b.textContent = "sentiment-weighted UMAP"; f.appendChild(b);
+  f.append(" · 賛否スコアは広聴AI の opinion_stance と同じプロンプト");
+}
+main().catch((e) => { $("sub").textContent = "読み込みに失敗しました: " + e; });
+</script>
+</body>
+</html>

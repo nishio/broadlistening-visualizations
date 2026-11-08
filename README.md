@@ -14,6 +14,7 @@
 | 意見マンダラート | 意見を 8 つずつに割り、1 マスが意見 1 枚になるまで繰り返した木を、中心＋周り 8 マスで降りていく（既定は 3×3、9×9 で周り 8 マスの中身も見える）。最下層から元の提案に飛べる | [mandalart/](https://nishio.github.io/broadlistening-visualizations/mandalart/) | `public_result.json`（＋任意で埋め込み）から作った木 | 試作 | 未判断 | 2026-11-08 |
 | 付箋ズーム | 2 次元配置の上に意見を付箋で置く。引いた状態でも各まとまりの表札が付箋で読め、寄るほど意見の付箋が増え、最後は全意見が付箋になる。付箋の位置と出始める拡大率は事前計算なので、拡大しても入れ替わらない | [sticky/](https://nishio.github.io/broadlistening-visualizations/sticky/) | `public_result.json` から作った配置 | 試作（全意見を格子に並べる部分は別 repo `canvas_kozaneba_prototype` の方式） | 未判断 | 2026-11-08 |
 | 対立軸ビュー（DivCon） | tokoroten の DivCon を広聴AI の上位クラスタに当てた。賛否の割れそうなまとまりごとに LLM が対立軸（A vs B）を見つけ、各意見を軸の上で 1〜6 に採点し、左右の欄に強い立場から並べる。LLM が挙げた「合意できそうな点」「根本的に対立する点」も出す | [divcon/](https://nishio.github.io/broadlistening-visualizations/divcon/) | `public_result.json` ＋ LLM で作った軸と採点（下記の契約の提案を参照） | 実験（元は [tokoroten/divcon](https://github.com/tokoroten/divcon)、MIT） | 未判断 | 2026-11-08 |
+| 賛否スライダー | tokoroten のセンチメント次元の付与。意見ごとの賛否スコアに重みを掛けて埋め込みに足し、重みのスライダーで同じ話題の賛成と反対が離れていくのを見る。賛否の分かれ方と話題の近さの崩れも数値で出す | [slider/](https://nishio.github.io/broadlistening-visualizations/slider/) | 賛否スコア（`attributes.stance_score`）つきの `public_result.json` ＋任意で埋め込み | 実験（元は tokoroten の [sentiment-weighted UMAP](https://sentiment-weighted-umap-animation.netlify.app/)） | 未判断 | 2026-11-08 |
 | 階層リスト（ツリー表示） | 上位のクラスタから展開して、最下層で個々の意見と出典まで辿る。検索つき | [tree/](https://nishio.github.io/broadlistening-visualizations/tree/) | `public_result.json` | **本体に入った**（kouchou-ai PR #1166、「全部読む」詳細モード）。ここは単体版 | 済 | 2026-11-07 |
 
 各項目の「最終確認日」は、その可視化が今の入力データと手元の手順で動くことを最後に確かめた日。古くなったら確かめ直すか、状態を書き換える。
@@ -57,9 +58,23 @@ uv run --group llm scripts/build_divcon.py docs/data/team-mirai-2025/public_resu
 #   OpenAI ならキーを環境変数 OPENAI_API_KEY か data/.env に。OpenAI 互換の接続先なら
 #   --endpoints <追跡しない JSON> --backend <名前> --model <モデル名>（並列は既定で 2）
 
-# 6. 見る
+# 6. 賛否スライダー用：まとまりごとに賛否スコアを付けた public_result.json を作り（LLM を使う）、重みごとの配置を作る
+uv run --group llm scripts/add_opinion_stance.py docs/data/team-mirai-2025/public_result.json \
+    --target "1_13=原子力発電を今後も活用すること" \
+    --target "1_1=選択的夫婦別姓や同性婚など、家族のあり方の選択肢を法的に広げること" \
+    --target "1_20=外国人・移民の受け入れを広げること" --target "1_19=女性天皇・女系天皇を認めること" \
+    --out-dir docs/data/team-mirai-2025-stance --kouchou-ai <kouchou-ai の checkout>
+for c in 1_13 1_1 1_20 1_19; do
+  uv run --group umap scripts/build_stance_slider.py docs/data/team-mirai-2025-stance/$c/public_result.json \
+      --embeddings data/team-mirai-2025/kouchou-ai-embeddings-1536dim.parquet --out docs/slider/team-mirai-2025-$c.json
+done
+#   （任意）賛否を無視した配置との比べ（下記「逆に、賛否を無視したら元の広聴AI になるか」）
+uv run --group umap scripts/check_stance_erasure.py --embeddings data/team-mirai-2025/kouchou-ai-embeddings-1536dim.parquet \
+    docs/data/team-mirai-2025-stance/{1_13,1_1,1_20,1_19}/public_result.json
+
+# 7. 見る
 cd docs && python3 -m http.server 8000
-# -> http://localhost:8000/  （mandalart/ ・ sticky/ ・ divcon/ ・ tree/）
+# -> http://localhost:8000/  （mandalart/ ・ sticky/ ・ divcon/ ・ slider/ ・ tree/）
 ```
 
 広聴AI で作った自分のレポートで描くときは、出力ディレクトリの `public_result.json` を使う。付箋ズームと階層リストは `?data=<public_result.json の URL>` でそのまま読める。マンダラートは 3 に渡して木を作り、`?data=<木の json>` で読む（`--embeddings` を省くと 2 次元配置で割る）。
@@ -137,6 +152,66 @@ cd docs && python3 -m http.server 8000
 - 意見ごとの採点：`arguments[].attributes` に数値で入れる（例 `"axis:1_13_A1": 2`）。`attributes` は契約の対象外（自由形式）なので、契約の変更は要らない。意見の分類ラベル・賛否スコア（`opinion_stance`）と同じ「意見ごとに属性を足す」形
 - 軸の定義：**置く場所がない**。省略可能なトップレベルキー（仮に `opposition_axes`）として、`id`・属するクラスタの `cluster_id`・`name`・`left_pole`・`right_pole`・`strength`・LLM の理由・アンカー・合意できそうな点／対立する点を持たせる。アンカーと合意可能性は LLM が書いた文なので、公開するかはレポートの作成者が選べるようにする
 
+## 賛否スライダーの作り
+
+元は tokoroten の「センチメント次元の付与（sentiment-weighted UMAP）」（[デモ](https://sentiment-weighted-umap-animation.netlify.app/combined_interactive.html)・[コード](https://sentiment-weighted-umap-animation.netlify.app/posinega_separation.zip)）。書籍『ブロードリスニング』13.4.3 の「賛否分離」の 1 つ目のアプローチで、kouchou-ai の docs の関連研究ページ（PR #1174）でも紹介している。
+
+- **賛否スコア**（`scripts/add_opinion_stance.py`）：広聴AI 本体の任意ステップ `opinion_stance` と同じ形にした。プロンプトは本体の既定（main `ddd0bacd` の `STANCE_PROMPT`）をそのまま使う。本体は AGPL-3.0 でこの repo は MIT なので、文は写さず、`--kouchou-ai` に渡した checkout（か、入っている `analysis_core`）から実行時に読む。意見 1 件ごとに「対象」と「意見」を渡し、-1.0〜+1.0 を `arguments[].attributes.stance_score` に入れ、判定不能には属性を付けない
+  - 元の tokoroten の版は、対象のない「肯定的か否定的か」を見ていた。このデータの意見はほとんどが「〜が不足している」型で、どれも否定的な調子になるので、本体と同じく対象への賛否にした
+  - 対象は 1 つのレポートに 1 つなので、まとまりごとに `public_result.json` の部分集合を作り、`config.question` を対象に置き換えた（`docs/data/team-mirai-2025-stance/<クラスタ>/public_result.json`）。対象の文はこちらで決めた：
+    - エネルギー＝「原子力発電を今後も活用すること」
+    - 家族＝「選択的夫婦別姓や同性婚など、家族のあり方の選択肢を法的に広げること」
+    - 移民＝「外国人・移民の受け入れを広げること」
+    - 皇位継承＝「女性天皇・女系天皇を認めること」
+- **重みごとの配置**（`scripts/build_stance_slider.py`）：埋め込み（1536 次元、長さ 1 に正規化）の末尾に w·stance_score を足し（判定不能は 0）、cosine で UMAP。w は 0〜1.5 を 0.05 刻み（元と同じ）
+  - 前の重みの座標を初期値に、50 エポックで学習し直すのは元と同じ。ただし元の学習率 1.0 のままだと、重みを変えずに学習し直しただけで点が配置の幅の 12%（中央値）も漂った
+  - 学習率を 0.1 に下げ、各段を前の段に縮尺・回転・平行移動だけで重ねる（Procrustes）と、漂いは 2.5% になった。代わりに点が動ける距離も短くなる。重み 1.5 での賛否の分かれは、移民で 0.77 → 0.72、家族で 0.37 → 0.14
+  - `--embeddings` を省くと、`public_result.json` の 2 次元配置 x/y を土台にする
+- 重みごとに 2 つの数値を残す。本体 docs が weight の採用判断に挙げている「賛否で分かれたか」と「トピックの近さが壊れていないか」を同時に見るためのもの
+  - 賛否の分かれ：賛成（> 0.2）と反対（< -0.2）を 2 群とした、2 次元でのシルエット係数
+  - 話題の近さの残り：重み 0 の埋め込みで近い 15 件のうち、2 次元でも近い 15 件に入っている割合
+- 表示側は重みの段のあいだを線形補間するだけ
+
+確かめた結果（2026-11-08、組織内の OpenAI 互換 LLM `unsloth/Qwen3.8-27B`、並列 2。賛否スコアは 2,167 回・応答待ち合計 654 秒）：
+
+| まとまり | 賛成 | 反対 | 中立 | 判定不能 | 賛否の分かれ（重み 0 → 1.5） | 話題の近さの残り（0 → 1.5） |
+|---|---|---|---|---|---|---|
+| エネルギー（967 件） | 59 | 331 | 12 | 565 | 0.09 → 0.73 | 0.43 → 0.34 |
+| 家族（659 件） | 383 | 58 | 24 | 194 | -0.02 → 0.14 | 0.51 → 0.43 |
+| 移民（444 件） | 41 | 136 | 24 | 243 | 0.01 → 0.72 | 0.51 → 0.41 |
+| 皇位継承（97 件） | 14 | 15 | 4 | 64 | 0.27 → 0.91 | 0.68 → 0.56 |
+
+- 移民とエネルギーは、重み 1〜1.5 で反対の意見が 1 つの島にまとまり、賛成と分かれる。そのとき話題の近さは 2〜3 割落ちる。tokoroten の「上げるほど賛否で分かれ、上げすぎると話題の類似が消える」が数値でも出た
+- 家族は賛成が大半で、少数の反対が分かれきらない
+- 点の動き：重み 0.05 ごとの移動は中央値で配置の幅の約 2%、上位 1% で 7〜12%、最大は 28〜65%。近い意見が話題から賛否へ入れ替わる点で、補間しているので跳ばずに動く
+- 採点の揺れ：「安定的な皇位継承が確保されていない」を女系容認への反対（-0.8）と読むなど、言い回しの含みを拾う例がある。エネルギーでは「無理な再エネ拡大は国民負担を増やす」を原子力の活用に賛成（+0.6）とするなど、間接的な賛否も拾う
+
+### 逆に、賛否を無視したら元の広聴AI になるか
+
+- 重み 0 が元の広聴AI と同じ考え方（埋め込みをそのまま UMAP にかけた配置）。ただしスライダーの重み 0 はまとまりだけで UMAP をかけ直したもので、レポートの散布図そのものではない
+- 重みを負にしても無視にはならない。足すのは 1 次元だけなので、距離は |w| で決まり、正と同じだけ分かれる
+- 本当に無視するには、埋め込みから賛否と相関する方向を取り除く（線形の概念消去）。`scripts/check_stance_erasure.py` で試した（2026-11-08、LLM は呼ばない。約 50 秒）
+
+| まとまり | 埋め込みから賛否を当てる AUC：元 → 平均の差を 1 方向取り除く → ロジスティック回帰の方向を 10 回取り除く | 賛否の分かれ：元の配置 → 消去後の配置 | 話題の近さの残り：元 → 消去後 | 元の配置との近傍の重なり（seed だけ変えた配置） |
+|---|---|---|---|---|
+| エネルギー | 0.89 → 0.79 → 0.81 | 0.09 → 0.01 | 0.43 → 0.35 | 0.38（0.64） |
+| 家族 | 0.88 → 0.70 → 0.74 | -0.01 → 0.05 | 0.51 → 0.44 | 0.52（0.76） |
+| 移民 | 0.93 → 0.83 → 0.82 | 0.01 → 0.04 | 0.51 → 0.43 | 0.52（0.80） |
+| 皇位継承 | 0.81 → 0.81 → 0.79 | 0.27 → 0.02 | 0.68 → 0.52 | 0.56（0.86） |
+
+- 埋め込みには賛否がはっきり入っている（AUC 0.81〜0.93）。それでも元の配置は、皇位継承以外ではほぼ賛否で分かれていない（シルエット係数 -0.01〜0.09）。近い意見は話題で決まり、賛否の違いは 2 次元に落とすと埋もれる。このデータでは、元の広聴AI の配置がすでに「賛否をほぼ無視した地図」になっている
+- 皇位継承だけは元の配置でも少し分かれていて（0.27）、取り除くと 0.02 になる
+- 線形に取り除いても、賛否は消えきらない。10 方向取り除いても AUC は 0.7〜0.8 に残る。賛否は少数の方向に収まらず、話題と絡んでいる（皇位継承は 29 件しかなく、AUC の振れが大きい）
+  - AUC は、取り除く方向を決める意見・分類器を学習する意見・評価する意見を分けて測った。最初に同じ意見で決めて測ったときは、消去後の AUC が 0.02〜0.08 と出た。逆向きに当てられる状態を作っていただけの見かけだった
+  - 平均の差の方向は 1 回取り除くと、次の差がほぼ 0 になる。そのため 3 方向・10 方向でも値が変わらない
+- 取り除いた埋め込みでかけ直した配置は、元の配置と、seed を変えたとき以上に変わる。話題の近さの残りも 0.07〜0.16 下がる。賛否と一緒に話題の情報も削れるため。賛否を無視した地図は、元の地図に戻るのではなく、話題の近さを少し失った別の地図になる
+- なので、スライダーの左に「無視」の端を足しても、得るものはほぼない。足す意味があるのは、皇位継承のように元の配置がもともと賛否を拾っているまとまりだけ
+
+### `public_result.json` に足りない項目（賛否スコア）
+
+- 賛否スコア自体は `arguments[].attributes.stance_score` に入る（本体の `opinion_stance` がすでにそうしている）。契約の変更は要らない
+- **賛否の対象が `public_result.json` に無い**。本体の `opinion_stance.target` は省略時に `question` を使うが、`target` を指定した場合、その文は `opinion_stance_summary.json` にしか残らず、公開用の契約に入らない。スコアを読む側は「何への賛否か」を知る必要がある。そこで省略可能なキー（例 `config.opinion_stance_target`、または属性ごとの説明を置く `attribute_meta`）を足すことを提案する。ここでは部分集合の `config.question` を対象に置き換えて済ませた
+
 ## 本体に入れる判断の目安
 
 - 実際に使われた例がある（会議・発表・自治体での利用など）
@@ -147,4 +222,5 @@ cd docs && python3 -m http.server 8000
 
 - コード：MIT（[LICENSE](LICENSE)）
 - データ（`docs/data/` と `docs/mandalart/team-mirai-2025.json`・`docs/divcon/team-mirai-2025.json`）：CC BY 4.0。出典は上記のとおり
-- 対立軸ビューのプロンプトと段の構成は tokoroten/divcon（MIT）による
+- 対立軸ビューのプロンプトと段の構成は tokoroten/divcon（MIT）による。賛否スライダーの手法は tokoroten の sentiment-weighted UMAP による。賛否スコアは kouchou-ai（AGPL-3.0）の `opinion_stance` の既定プロンプトを実行時に読んで付けた（プロンプトの文はこの repo に含めていない）
+- データ（`docs/data/team-mirai-2025-stance/` と `docs/slider/*.json`）も CC BY 4.0
