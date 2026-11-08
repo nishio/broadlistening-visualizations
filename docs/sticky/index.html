@@ -47,10 +47,10 @@ button { font: inherit; font-size: 13px; min-width: 36px; padding: 6px 10px; bor
 // ここでは拡大率と比べて、出す付箋は付箋、まだ出さない意見は点で描くだけ。付箋は画面上で一定の大きさ。
 // 一度出た付箋は寄っても消えず、位置も動かない。
 const I18N = {
-  ja: { title: "付箋ズーム", src: "元の提案（PR）を開く", shown: (n, t) => `· 付箋 ${n.toLocaleString()} 枚 / ${t.toLocaleString()} 件`,
-        sub: (n) => `意見 ${n.toLocaleString()} 件を広聴AI の配置に置いた。引いた状態では各まとまりの代表の意見が付箋で、寄るほど付箋が増え、最後は全部の意見が付箋になる。ホイール・ピンチで拡大、ドラッグで移動、付箋を押すと詳細。` },
-  en: { title: "Sticky-note zoom", src: "Open the source proposal (PR)", shown: (n, t) => `· ${n.toLocaleString()} notes / ${t.toLocaleString()} opinions`,
-        sub: (n) => `${n.toLocaleString()} opinions on the Kouchou-AI layout. Zoomed out, each group shows its representative opinion as a note; zoom in and more notes appear until every opinion is a note. Wheel or pinch to zoom, drag to pan, tap a note for details.` },
+  ja: { title: "付箋ズーム", src: "元の提案（PR）を開く", rep: "このまとまりの代表の意見：", shown: (n, t) => `· 付箋 ${n.toLocaleString()} 枚 / ${t.toLocaleString()} 件`,
+        sub: (n) => `意見 ${n.toLocaleString()} 件を広聴AI の配置に置いた。引いた状態では各まとまりの表札（濃い色の付箋）が出て、寄るほど意見の付箋が増え、最後は全部の意見が付箋になる。ホイール・ピンチで拡大、ドラッグで移動、付箋を押すと詳細。` },
+  en: { title: "Sticky-note zoom", src: "Open the source proposal (PR)", rep: "Representative opinion of this group: ", shown: (n, t) => `· ${n.toLocaleString()} notes / ${t.toLocaleString()} opinions`,
+        sub: (n) => `${n.toLocaleString()} opinions on the Kouchou-AI layout. Zoomed out, each group shows its label as a darker note; zoom in and more opinion notes appear until every opinion is a note. Wheel or pinch to zoom, drag to pan, tap a note for details.` },
 };
 const FONT = 'system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif';
 const cv = document.getElementById("cv"), ctx = cv.getContext("2d");
@@ -79,52 +79,77 @@ function zoomAt(X, Y, f) {
 
 const txt = (a) => (lang === "en" && a.ten) || a.text;
 const lab = (c) => (lang === "en" && c.len) || c.label;
-function wrap(s, maxW, maxLines) {
-  const out = []; let line = "";
+// 付箋の中身は、全文が収まる最大の文字サイズで書く（FMIN〜FMAX px）。最小でも収まらない分だけ「…」で切る。
+// 文字幅は 1 文字ずつ 100px で 1 回だけ測り、大きさに比例させて使う（大きさを何度試しても measureText を呼ばない）。
+const FMIN = 10, FMAX = 28, LH = 1.28, PAD = 7, PADY = 5;
+const charW = new Map();
+function cw(ch, weight) {
+  const key = weight + ch;
+  let v = charW.get(key);
+  if (v === undefined) { ctx.font = `${weight} 100px ${FONT}`; v = ctx.measureText(ch).width / 100; charW.set(key, v); }
+  return v;
+}
+// maxLines を超えたら null を返す（clip のときは最後の行を「…」で切って返す）。
+// 句読点・閉じ括弧は行頭に置かず前の行にぶら下げる（はみ出しは fillText の最大幅で詰める）
+const NOSTART = new Set("、。，．,.)）」』】！？!?");
+function wrap(s, weight, f, maxW, maxLines, clip) {
+  const out = []; let line = "", lw = 0;
   for (const ch of s) {
-    if (ctx.measureText(line + ch).width > maxW && line) { out.push(line); line = ch; if (out.length === maxLines) { line = null; break; } }
-    else line += ch;
+    const w = cw(ch, weight) * f;
+    if (lw + w > maxW && line && !NOSTART.has(ch)) {
+      out.push(line);
+      if (out.length === maxLines) {
+        if (!clip) return null;
+        let l = [...out[maxLines - 1]], tw = l.reduce((t, c) => t + cw(c, weight) * f, 0);
+        const ell = cw("…", weight) * f;
+        while (l.length && tw + ell > maxW) tw -= cw(l.pop(), weight) * f;
+        out[maxLines - 1] = l.join("") + "…";
+        return out;
+      }
+      line = ch; lw = w;
+    } else { line += ch; lw += w; }
   }
   if (line) out.push(line);
-  else if (line === null) { let l = out[maxLines - 1]; while (l && ctx.measureText(l + "…").width > maxW) l = l.slice(0, -1); out[maxLines - 1] = l + "…"; }
   return out;
 }
-// 付箋の中身は大きさが一定なので、改行位置は言語ごとに 1 回だけ計算して使い回す
+// 表札つき付箋（まとまりの代表）は表札だけを書く。代表の意見の本文は押すと出る
+const noteText = (a) => a.head ? lab(a.head === 1 ? a.c1 : a.c2) : txt(a);
+const noteWeight = (a) => a.head ? 600 : 400;
+// 大きさ f で並べてみる。収まらなければ null（clip なら入る行数で切って並べる）
+const EPS = 1e-6;
+function layoutAt(a, f, clip) {
+  const lh = f * LH, rows = Math.max(1, Math.floor((NH - PADY * 2) / lh + EPS));
+  const lines = wrap(noteText(a), noteWeight(a), f, NW - PAD * 2, rows + (clip ? 0 : 1), clip);
+  if (!lines || lines.length > rows) return null;
+  return { f, lh, lines, y0: (NH - lines.length * lh) / 2 };
+}
+// fn(f) が値を返す最大の f（FMIN〜FMAX、0.5px 刻み程度）を探し、その値を返す。FMIN でも駄目なら null
+function largest(fn) {
+  let r = fn(FMAX);
+  if (r) return r;
+  let lo = FMIN, hi = FMAX, best = fn(FMIN);
+  if (best) while (hi - lo > 0.5) { const m = (lo + hi) / 2, v = fn(m); if (v) { lo = m; best = v; } else hi = m; }
+  return best;
+}
+// 付箋の大きさは一定なので、文字の大きさと改行位置は言語ごとに 1 回だけ決めて使い回す
 function content(a) {
   const key = lang + a.i;
   let c = cache.get(key);
-  if (c) return c;
-  const pad = 7, w = NW - pad * 2;
-  c = {};
-  if (a.head) {
-    ctx.font = `600 11px ${FONT}`; c.head = wrap(lab(a.head === 1 ? a.c1 : a.c2), w, 2);
-    ctx.font = `400 11px ${FONT}`; c.body = wrap(txt(a), w, c.head.length === 1 ? 3 : 2);
-  } else {
-    ctx.font = `400 12px ${FONT}`; c.body = wrap(txt(a), w, 4);
-  }
-  cache.set(key, c);
+  if (!c) { c = largest((f) => layoutAt(a, f, false)) || layoutAt(a, FMIN, true); cache.set(key, c); }
   return c;
 }
 
 function drawNote(a, X, Y, alpha) {
-  const x = X - NW / 2, y = Y - NH / 2, pad = 7;
+  const x = X - NW / 2, y = Y - NH / 2;
   ctx.globalAlpha = alpha;
   ctx.fillStyle = "rgba(0,0,0,.13)"; ctx.fillRect(x + 2, y + 2, NW, NH);
-  ctx.fillStyle = a.c1.color; ctx.fillRect(x, y, NW, NH);
+  ctx.fillStyle = a.head ? a.c1.band : a.c1.color; ctx.fillRect(x, y, NW, NH);
   const c = content(a);
-  ctx.textBaseline = "top";
-  if (c.head) {
-    const bh = c.head.length * 14 + 6;
-    ctx.fillStyle = a.c1.band; ctx.fillRect(x, y, NW, bh);
-    ctx.fillStyle = "#14140f"; ctx.font = `600 11px ${FONT}`;
-    c.head.forEach((l, i) => ctx.fillText(l, x + pad, y + 4 + i * 14));
-    ctx.font = `400 11px ${FONT}`; ctx.fillStyle = "#2a2a26";
-    c.body.forEach((l, i) => ctx.fillText(l, x + pad, y + bh + 4 + i * 14));
-  } else {
-    ctx.font = `400 12px ${FONT}`; ctx.fillStyle = "#1d1d1b";
-    const lh = 15.5, y0 = y + (NH - c.body.length * lh) / 2 + 1;
-    c.body.forEach((l, i) => ctx.fillText(l, x + pad, y0 + i * lh));
-  }
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = a.head ? "#14140f" : "#1d1d1b";
+  ctx.font = `${noteWeight(a)} ${c.f}px ${FONT}`;
+  // fillText の最大幅は、文字幅の見積もりが実際より少し狭かったときの保険
+  c.lines.forEach((l, i) => ctx.fillText(l, x + PAD, y + c.y0 + (i + 0.5) * c.lh, NW - PAD * 2));
   ctx.globalAlpha = 1;
   placed.push({ a, x, y });
 }
@@ -152,7 +177,7 @@ function draw() {
 function showDetail(a) {
   const d = $("detail"); d.innerHTML = "";
   const path = document.createElement("div"); path.className = "path"; path.textContent = lab(a.c1) + " › " + lab(a.c2); d.appendChild(path);
-  const t = document.createElement("div"); t.textContent = txt(a); d.appendChild(t);
+  const t = document.createElement("div"); t.textContent = (a.head ? I18N[lang].rep : "") + txt(a); d.appendChild(t);
   if (lang === "en" && a.ten) { const j = document.createElement("div"); j.className = "path"; j.textContent = a.text; d.appendChild(j); }
   if (a.url) { const l = document.createElement("a"); l.href = a.url; l.target = "_blank"; l.rel = "noopener"; l.textContent = I18N[lang].src; d.appendChild(l); }
   d.classList.add("on");

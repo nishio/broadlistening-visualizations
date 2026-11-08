@@ -28,15 +28,18 @@ h1 { font-size: 17px; margin: 0 0 2px; }
 .crumbs a:hover { text-decoration: underline; }
 button { font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; cursor: pointer; }
 button[aria-pressed="true"] { background: var(--accent); color: var(--bg); border-color: var(--accent); }
-main { padding: 4px 16px 24px; }
+main { padding: 4px 16px 24px; overflow-x: auto; }
 .board { display: grid; gap: 6px; max-width: 1100px; margin: 0 auto; }
-.board.nine { grid-template-columns: repeat(3, 1fr); }
+.board.nine { grid-template-columns: repeat(3, 1fr); min-width: 620px; } /* 狭い画面では横にスクロールさせ、マスを文字が読める大きさに保つ */
 .block { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
 .board.three { grid-template-columns: 1fr; max-width: 640px; }
-.cell { position: relative; min-height: 64px; aspect-ratio: 1 / 1; padding: 5px; border-radius: 4px; overflow: hidden; font-size: 11px; line-height: 1.35; cursor: pointer; display: flex; flex-direction: column; justify-content: center; text-align: center; }
-.three .cell { font-size: 13px; min-height: 90px; padding: 8px; }
-.cell .t { display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden; }
+/* 上下の余白は、隅の「意見」と件数に文字が重ならないためのもの。文字の大きさは fitText() がマスごとに決める */
+.cell { position: relative; min-height: 64px; aspect-ratio: 1 / 1; padding: 13px 5px; border-radius: 4px; overflow: hidden; font-size: 11px; line-height: 1.3; cursor: pointer; display: flex; flex-direction: column; justify-content: center; text-align: center; }
+.three .cell { min-height: 90px; padding: 18px 10px; }
+.cell .t { flex: none; }
+.cell .t.clamp { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; }
 .cell .n { position: absolute; right: 4px; bottom: 2px; font-size: 10px; color: var(--muted); }
+.three .cell .n { right: 6px; bottom: 3px; font-size: 12px; }
 .cell.node { background: var(--node); }
 .cell.node:hover { background: var(--node-hi); }
 .cell.arg { background: var(--arg); border: 1px solid var(--arg-line); }
@@ -52,7 +55,7 @@ html[lang="en"] .cell.arg::before { content: "opinion"; }
 .detail a { color: var(--accent); }
 footer { padding: 8px 16px 24px; color: var(--muted); font-size: 11px; max-width: 1132px; margin: 0 auto; }
 footer a { color: var(--accent); }
-@media (max-width: 720px) { .cell { font-size: 10px; padding: 3px; } .cell .t { -webkit-line-clamp: 4; } }
+@media (max-width: 720px) { .nine .cell { padding: 12px 3px; } }
 </style>
 </head>
 <body>
@@ -143,6 +146,36 @@ function render(id) {
   }
   renderCrumbs(id);
   $("up").disabled = id === 0;
+  fitText();
+}
+
+// マスごとに、全文が収まる最大の文字サイズを二分探索で決める。全マスを同じ歩みで探すと、
+// 1 歩ごとに「全マスに書き込む→全マスを読む」で済み、配置の計算が 1 回ですむ。
+// 最小の大きさでも収まらないマスだけ、入る行数で切って「…」にする。
+const FIT_MIN = 10, FIT_MAX = 40;
+function fitText() {
+  const items = [...$("board").querySelectorAll(".cell .t")].map((t) => {
+    const cell = t.parentElement, cs = getComputedStyle(cell);
+    t.classList.remove("clamp"); t.style.webkitLineClamp = "";
+    const w = cell.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const h = cell.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    // 1 行に 3 文字は入る大きさまで（「全体」のような短い表札が巨大にならないように）
+    return { t, h, lo: FIT_MIN, hi: Math.max(FIT_MIN, Math.min(FIT_MAX, w / 3)) };
+  });
+  const fits = (it) => it.t.scrollHeight <= it.h + 0.5 && it.t.scrollWidth <= it.t.clientWidth + 0.5;
+  items.forEach((it) => { it.t.style.fontSize = it.hi + "px"; });
+  items.forEach((it) => { if (fits(it)) it.lo = it.hi; });
+  for (let step = 0; step < 7; step++) {
+    const open = items.filter((it) => it.hi - it.lo > 0.25);
+    if (!open.length) break;
+    open.forEach((it) => { it.t.style.fontSize = (it.lo + it.hi) / 2 + "px"; });
+    open.forEach((it) => { const m = (it.lo + it.hi) / 2; if (fits(it)) it.lo = m; else it.hi = m; });
+  }
+  items.forEach((it) => { it.t.style.fontSize = Math.floor(it.lo * 2) / 2 + "px"; });
+  items.filter((it) => !fits(it)).forEach((it) => {
+    it.t.classList.add("clamp");
+    it.t.style.webkitLineClamp = Math.max(1, Math.floor(it.h / (FIT_MIN * 1.3)));
+  });
 }
 
 function renderCrumbs(id) {
@@ -199,6 +232,8 @@ async function main() {
   $("mode9").addEventListener("click", () => setMode(9));
   $("mode3").addEventListener("click", () => setMode(3));
   $("lang").addEventListener("click", () => { lang = lang === "ja" ? "en" : "ja"; applyLang(); });
+  let fitPending = false;
+  new ResizeObserver(() => { if (!fitPending) { fitPending = true; requestAnimationFrame(() => { fitPending = false; fitText(); }); } }).observe($("board"));
   setMode(mode);
   applyLang();
 }
