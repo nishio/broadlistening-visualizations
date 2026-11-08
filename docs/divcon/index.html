@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>対立軸ビュー</title>
+<style>
+:root {
+  --bg: #f6f5f1; --fg: #1d1d1b; --muted: #6b6a64; --line: #d8d6ce; --panel: #fffdf8; --accent: #2f4f7f;
+  --l3: #1f5fa8; --l2: #5b8fd0; --l1: #a9c6ec; --r1: #f1c08f; --r2: #e08a45; --r3: #b85a17;
+  --lbg: #eef3fa; --rbg: #fbf1e8; --agree: #e7f2ea; --agree-line: #8fbf9c; --clash: #f7e9e7; --clash-line: #d39a91;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17181a; --fg: #ecebe6; --muted: #a09f98; --line: #34363a; --panel: #1f2023; --accent: #8fb0e0;
+    --l3: #7fb0ee; --l2: #4f7fbd; --l1: #2e4a70; --r1: #6e4a28; --r2: #b56c30; --r3: #f0a060;
+    --lbg: #1c2430; --rbg: #2b2219; --agree: #1d2a21; --agree-line: #3f6b4b; --clash: #2d1f1d; --clash-line: #7a4a42;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.55 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+header { padding: 12px 16px 4px; max-width: 1180px; margin: 0 auto; }
+h1 { font-size: 17px; margin: 0 0 2px; }
+h1 a { color: inherit; text-decoration: none; }
+.sub { color: var(--muted); font-size: 12px; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 16px; max-width: 1180px; margin: 0 auto; }
+select, input[type=search] { font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--fg); }
+select { flex: 1 1 360px; max-width: 100%; }
+input[type=search] { flex: 1 1 180px; }
+main { max-width: 1180px; margin: 0 auto; padding: 0 16px 24px; }
+.axis { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+.axis .topic { color: var(--muted); font-size: 12px; }
+.axis h2 { font-size: 18px; margin: 2px 0 6px; }
+.poles { display: grid; grid-template-columns: 1fr auto 1fr; gap: 8px; align-items: center; font-size: 13px; }
+.poles .l { color: var(--l3); font-weight: 600; }
+.poles .r { color: var(--r3); font-weight: 600; text-align: right; }
+.poles .vs { color: var(--muted); font-size: 12px; }
+.dist { display: flex; height: 26px; margin: 10px 0 4px; border-radius: 4px; overflow: hidden; background: var(--line); }
+.dist div { display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 600; color: #fff; min-width: 0; overflow: hidden; white-space: nowrap; }
+.dist .s1 { background: var(--l3); } .dist .s2 { background: var(--l2); } .dist .s3 { background: var(--l1); color: #1d1d1b; }
+.dist .s4 { background: var(--r1); color: #1d1d1b; } .dist .s5 { background: var(--r2); } .dist .s6 { background: var(--r3); }
+.meta { color: var(--muted); font-size: 12px; display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.why { margin-top: 6px; font-size: 12px; color: var(--muted); }
+details.anchors { margin-top: 8px; font-size: 12px; }
+details.anchors summary { cursor: pointer; color: var(--accent); }
+details.anchors ol { margin: 6px 0; padding-left: 20px; }
+.anc { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.panes { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 12px; }
+.pane { border-radius: 8px; padding: 8px; min-width: 0; }
+.pane.left { background: var(--lbg); } .pane.right { background: var(--rbg); }
+.pane h3 { font-size: 13px; margin: 2px 4px 8px; display: flex; justify-content: space-between; gap: 8px; }
+.pane h3 .n { color: var(--muted); font-weight: 400; }
+.op { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin: 0 0 6px; display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; }
+.op .sc { grid-row: span 2; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: #fff; }
+.op .sc.s1 { background: var(--l3); } .op .sc.s2 { background: var(--l2); } .op .sc.s3 { background: var(--l1); color: #1d1d1b; }
+.op .sc.s4 { background: var(--r1); color: #1d1d1b; } .op .sc.s5 { background: var(--r2); } .op .sc.s6 { background: var(--r3); }
+.op .rs { color: var(--muted); font-size: 12px; }
+.op .rs a { color: var(--accent); margin-left: 6px; white-space: nowrap; }
+.op.hl { outline: 2px solid var(--accent); }
+.ref { display: inline-block; font-size: 10px; line-height: 1; padding: 2px 4px; margin: 0 1px; border-radius: 3px; background: var(--line); color: var(--fg); cursor: pointer; vertical-align: 1px; border: 0; font-family: inherit; }
+.ref:hover { background: var(--accent); color: var(--bg); }
+.more { font: inherit; font-size: 12px; width: 100%; padding: 6px; border: 1px dashed var(--line); background: transparent; color: var(--accent); border-radius: 6px; cursor: pointer; }
+.empty { color: var(--muted); font-size: 12px; padding: 8px; }
+.concil { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 16px; }
+.concil h3 { font-size: 14px; margin: 0 0 6px; }
+.pt { border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; font-size: 13px; }
+.pt.agree { background: var(--agree); border-left: 3px solid var(--agree-line); }
+.pt.clash { background: var(--clash); border-left: 3px solid var(--clash-line); }
+.pt b { display: block; margin-bottom: 2px; }
+.pt .refs { margin-top: 4px; font-size: 12px; color: var(--muted); }
+.pt .refs summary { cursor: pointer; color: var(--accent); }
+.pt .refs ul { margin: 4px 0 0; padding-left: 18px; }
+.note { color: var(--muted); font-size: 12px; margin: 16px 0 0; }
+footer { padding: 8px 16px 24px; color: var(--muted); font-size: 11px; max-width: 1180px; margin: 0 auto; }
+footer a, .note a { color: var(--accent); }
+@media (max-width: 720px) { .panes, .concil, .anc { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="../">←</a> 対立軸ビュー</h1>
+  <div class="sub" id="sub">読み込み中…</div>
+</header>
+<div class="bar">
+  <select id="axis" aria-label="対立軸"></select>
+  <input type="search" id="q" placeholder="意見を検索" aria-label="意見を検索">
+</div>
+<main>
+  <section class="axis" id="card"></section>
+  <section class="panes">
+    <div class="pane left"><h3><span id="lh"></span><span class="n" id="ln"></span></h3><div id="lp"></div></div>
+    <div class="pane right"><h3><span id="rh"></span><span class="n" id="rn"></span></h3><div id="rp"></div></div>
+  </section>
+  <section class="concil" id="concil"></section>
+  <p class="note">
+    スコアは LLM による判定で、人手では確かめていない。軸の名前・両極・アンカー・合意できそうな点も LLM が書いたもの。
+    入力の意見は広聴AI が提案文から取り出した短い文（多くが「〜が不足している」の形）なので、立場が文に表れていない意見は「該当なし」になりやすい。
+    元の提案は各意見の「提案」から開ける。
+  </p>
+</main>
+<footer id="foot"></footer>
+<script>
+"use strict";
+// 対立軸・アンカー・採点は scripts/build_divcon.py で事前に計算してある（元は tokoroten/divcon）。
+// ここでは public_result.json の意見の本文と出典に、軸ごとの採点を突き合わせて並べるだけ。
+const PAGE = 40;
+const $ = (id) => document.getElementById(id);
+let P, D, byId = new Map(), axisById = new Map(), topicById = new Map(), current = null, shown = { l: PAGE, r: PAGE };
+
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+
+// LLM の説明文の ⟦arg_id,…⟧ を、押すとその意見へ飛ぶ小さな印にする（印の番号は文ごとの通し番号）
+function prose(text) {
+  const frag = document.createDocumentFragment(); let n = 0, last = 0;
+  text.replace(/⟦([^⟧]*)⟧/g, (m, ids, at) => {
+    frag.appendChild(document.createTextNode(text.slice(last, at))); last = at + m.length;
+    ids.split(",").filter((id) => byId.has(id)).forEach((id) => {
+      const b = el("button", "ref", "意見" + (++n)); b.type = "button"; b.title = byId.get(id).argument;
+      b.addEventListener("click", () => jump(id)); frag.appendChild(b);
+    });
+    return m;
+  });
+  frag.appendChild(document.createTextNode(text.slice(last)));
+  return frag;
+}
+
+function jump(id) {
+  const row = (D.scores[current.id] || []).find((r) => r[0] === id);
+  if (row) {  // この軸で採点された意見なら、その欄で見える所まで広げて光らせる
+    $("q").value = "";
+    const side = row[1] <= 3 ? "l" : "r", rows = (D.scores[current.id] || []).filter((r) => side === "l" ? r[1] <= 3 : r[1] >= 4).sort((a, b) => side === "l" ? a[1] - b[1] : b[1] - a[1]);
+    shown[side] = Math.max(shown[side], rows.findIndex((r) => r[0] === id) + 1);
+    render();
+    const e = document.getElementById("op-" + id);
+    if (e) { e.classList.add("hl"); e.scrollIntoView({ block: "center", behavior: "smooth" }); setTimeout(() => e.classList.remove("hl"), 2500); }
+  } else alert(byId.get(id).argument + "\n\n（この軸では「該当なし」）");
+}
+
+function opItem(row) {
+  const [id, sc, why] = row, a = byId.get(id);
+  const d = el("div", "op"); d.id = "op-" + id;
+  d.appendChild(el("div", "sc s" + sc, String(sc)));
+  d.appendChild(el("div", "t", a ? a.argument : id));
+  const rs = el("div", "rs", why || "");
+  if (a && a.url) { const l = el("a", null, "提案"); l.href = a.url; l.target = "_blank"; l.rel = "noopener"; rs.appendChild(l); }
+  d.appendChild(rs);
+  return d;
+}
+
+function renderPane(side, rows) {
+  const box = $(side + "p"); box.innerHTML = "";
+  if (!rows.length) { box.appendChild(el("div", "empty", "該当する意見なし")); return; }
+  rows.slice(0, shown[side]).forEach((r) => box.appendChild(opItem(r)));
+  if (rows.length > shown[side]) {
+    const b = el("button", "more", `残り ${rows.length - shown[side]} 件を表示`);
+    b.addEventListener("click", () => { shown[side] += PAGE * 4; renderPane(side, rows); });
+    box.appendChild(b);
+  }
+}
+
+function refsBlock(label, ids) {
+  if (!ids || !ids.length) return null;
+  const det = el("details", "refs"); det.appendChild(el("summary", null, `${label} ${ids.length} 件`));
+  const ul = el("ul");
+  ids.forEach((id) => { const a = byId.get(id); if (a) ul.appendChild(el("li", null, a.argument)); });
+  det.appendChild(ul); return det;
+}
+
+function render() {
+  const ax = current, topic = topicById.get(ax.cluster_id), q = $("q").value.trim();
+  const card = $("card"); card.innerHTML = "";
+  card.appendChild(el("div", "topic", `まとまり：${topic.label}（意見 ${topic.n.toLocaleString()} 件）`));
+  card.appendChild(el("h2", null, ax.name));
+  const poles = el("div", "poles");
+  poles.appendChild(el("div", "l", "← " + ax.left_pole)); poles.appendChild(el("div", "vs", "vs")); poles.appendChild(el("div", "r", ax.right_pole + " →"));
+  card.appendChild(poles);
+  const dist = el("div", "dist"), total = ax.dist.reduce((s, v) => s + v, 0);
+  ax.dist.forEach((v, i) => { if (!v) return; const s = el("div", "s" + (i + 1), v >= 3 ? String(v) : ""); s.style.flex = String(v); s.title = `${i + 1}：${v} 件`; dist.appendChild(s); });
+  card.appendChild(dist);
+  const meta = el("div", "meta");
+  meta.appendChild(el("span", null, `左（1〜3）${(ax.dist[0] + ax.dist[1] + ax.dist[2]).toLocaleString()} 件 · 右（4〜6）${(ax.dist[3] + ax.dist[4] + ax.dist[5]).toLocaleString()} 件`));
+  meta.appendChild(el("span", null, `該当なし ${ax.n_na.toLocaleString()} 件`));
+  meta.appendChild(el("span", null, `対立の強さ（LLM の見立て）${"●".repeat(ax.strength)}${"○".repeat(5 - ax.strength)}`));
+  card.appendChild(meta);
+  if (ax.reasoning) { const w = el("div", "why"); w.appendChild(prose(ax.reasoning)); card.appendChild(w); }
+  if (ax.left_anchors && ax.left_anchors.length) {
+    const det = el("details", "anchors"); det.appendChild(el("summary", null, "採点の基準にした極端な主張（LLM が作った例文で、実在の意見ではない）"));
+    const g = el("div", "anc");
+    [["左極（1）", ax.left_anchors], ["右極（6）", ax.right_anchors]].forEach(([h, xs]) => {
+      const c = el("div"); c.appendChild(el("b", null, h)); const ol = el("ol"); xs.forEach((x) => ol.appendChild(el("li", null, x))); c.appendChild(ol); g.appendChild(c);
+    });
+    det.appendChild(g); card.appendChild(det);
+  }
+
+  let rows = D.scores[ax.id] || [];
+  if (q) rows = rows.filter((r) => { const a = byId.get(r[0]); return a && a.argument.includes(q); });
+  const left = rows.filter((r) => r[1] <= 3).sort((a, b) => a[1] - b[1]);
+  const right = rows.filter((r) => r[1] >= 4).sort((a, b) => b[1] - a[1]);
+  $("lh").textContent = "← " + ax.left_pole; $("rh").textContent = ax.right_pole + " →";
+  $("ln").textContent = left.length.toLocaleString() + " 件"; $("rn").textContent = right.length.toLocaleString() + " 件";
+  renderPane("l", left); renderPane("r", right);
+
+  const cc = $("concil"); cc.innerHTML = "";
+  const con = ax.consensus;
+  if (con) {
+    const a = el("div"); a.appendChild(el("h3", null, "合意できそうな点"));
+    (con.consensus_points.length ? con.consensus_points : []).forEach((p) => {
+      const d = el("div", "pt agree"); d.appendChild(el("b", null, p.point)); const x = el("div"); x.appendChild(prose(p.explanation)); d.appendChild(x);
+      const r = refsBlock("根拠の意見", p.supporting_opinions); if (r) d.appendChild(r); a.appendChild(d);
+    });
+    if (!con.consensus_points.length) a.appendChild(el("div", "empty", "挙がらなかった"));
+    const b = el("div"); b.appendChild(el("h3", null, "根本的に対立する点"));
+    con.conflict_points.forEach((p) => {
+      const d = el("div", "pt clash"); d.appendChild(el("b", null, p.point)); const x = el("div"); x.appendChild(prose(p.explanation)); d.appendChild(x);
+      [["左の意見", p.left_opinions], ["右の意見", p.right_opinions]].forEach(([h, ids]) => { const r = refsBlock(h, ids); if (r) d.appendChild(r); });
+      b.appendChild(d);
+    });
+    if (!con.conflict_points.length) b.appendChild(el("div", "empty", "挙がらなかった"));
+    cc.appendChild(a); cc.appendChild(b);
+  }
+}
+
+function select(id) {
+  current = axisById.get(id) || D.axes[0];
+  $("axis").value = current.id; shown = { l: PAGE, r: PAGE };
+  history.replaceState(null, "", "#" + current.id);
+  render();
+}
+
+async function main() {
+  const q = new URLSearchParams(location.search);
+  [P, D] = await Promise.all([
+    fetch(q.get("data") || "../data/team-mirai-2025/public_result.json").then((r) => r.json()),
+    fetch(q.get("divcon") || "team-mirai-2025.json").then((r) => r.json()),
+  ]);
+  P.arguments.forEach((a) => byId.set(a.arg_id, a));
+  D.topics.forEach((t) => topicById.set(t.cluster_id, t));
+  D.axes.forEach((a) => axisById.set(a.id, a));
+  const sel = $("axis");
+  D.topics.forEach((t) => {
+    const g = document.createElement("optgroup"); g.label = `${t.label}（${t.n.toLocaleString()} 件）`;
+    D.axes.filter((a) => a.cluster_id === t.cluster_id).forEach((a) => {
+      const o = document.createElement("option"); o.value = a.id; o.textContent = `${a.name}（採点 ${a.n_scored.toLocaleString()} 件）`; g.appendChild(o);
+    });
+    sel.appendChild(g);
+  });
+  const nScored = D.axes.reduce((s, a) => s + a.n_scored, 0);
+  $("sub").textContent = `広聴AI のまとまり ${D.topics.length} つ（意見 ${D.meta.n_arguments.toLocaleString()} 件）それぞれで、LLM が意見の割れている軸を ${D.axes.length} 本見つけ、各意見を軸の上で 1（左の極）〜 6（右の極）に採点した（延べ ${nScored.toLocaleString()} 件）。中立の 3.5 はなく、軸に当たらない意見は「該当なし」。左右の欄に強い立場から並べ、下に LLM が挙げた「合意できそうな点」と「根本的に対立する点」を出す。`;
+  sel.addEventListener("change", () => select(sel.value));
+  $("q").addEventListener("input", () => { shown = { l: PAGE, r: PAGE }; render(); });
+  const f = $("foot");
+  f.appendChild(document.createTextNode("出典：チームみらい・しゃべれるマニフェスト参加者 / データセット "));
+  const a = el("a", null, "nishiohirokazu/team-mirai-2025-embeddings"); a.href = "https://huggingface.co/datasets/nishiohirokazu/team-mirai-2025-embeddings"; f.appendChild(a);
+  f.appendChild(document.createTextNode(" (CC BY 4.0) · 手法："));
+  const b = el("a", null, "tokoroten/divcon"); b.href = "https://github.com/tokoroten/divcon"; f.appendChild(b);
+  f.appendChild(document.createTextNode(` (MIT) を広聴AI のまとまりに当てたもの · ${D.meta.model} · ${D.meta.built}`));
+  window.addEventListener("hashchange", () => { if (location.hash.slice(1) !== current.id) select(location.hash.slice(1)); });
+  select(location.hash.slice(1));
+}
+main().catch((e) => { $("sub").textContent = "読み込みに失敗しました: " + e; });
+</script>
+</body>
+</html>

@@ -12,3 +12,7 @@ dependencies = [
 
 [tool.uv]
 package = false
+
+[dependency-groups]
+# 対立軸ビュー（scripts/build_divcon.py）で LLM を呼ぶときだけ使う
+llm = ["openai>=1.99", "pydantic>=2.7"]
