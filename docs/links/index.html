@@ -1,0 +1,695 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>一緒に言われた話題</title>
+<style>
+/* 色の役割：灰＝背景の意見と近い組の線、橙＝地図の上で離れた組の線、青と緑みの青＝選んだ組の左の欄と右の欄。
+   20 ある上位クラスタは色分けしない（20 色は見分けられない）。代わりに地図の上に名前を出す */
+:root {
+  --bg: #f6f5f1; --fg: #1d1d1b; --muted: #6b6a64; --line: #d8d6ce; --accent: #2f4f7f;
+  --panel: #fbfaf7; --hover: #ecebe4; --card: #ffffff;
+  --dot: rgba(107, 106, 100, .30); --dot-dim: rgba(107, 106, 100, .14);
+  --near: rgba(82, 81, 78, .62); --far: #eb6834; --side-a: #2a78d6; --side-b: #1baf7a;
+  --halo: rgba(246, 245, 241, .92);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17181a; --fg: #ecebe6; --muted: #a09f98; --line: #34363a; --accent: #8fb0e0;
+    --panel: #1b1c1f; --hover: #26282c; --card: #222327;
+    --dot: rgba(160, 159, 152, .28); --dot-dim: rgba(160, 159, 152, .11);
+    --near: rgba(195, 194, 183, .55); --far: #d95926; --side-a: #3987e5; --side-b: #199e70;
+    --halo: rgba(23, 24, 26, .9);
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; } /* 読み込みが終わるまで（と失敗したとき）は操作のボタンを出さない */
+html, body { margin: 0; height: 100%; }
+body { background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif;
+       display: flex; flex-direction: column; height: 100vh; height: 100dvh; overflow: hidden; }
+header { flex: none; padding: 10px 16px 8px; border-bottom: 1px solid var(--line); }
+.hrow { display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+h1 { font-size: 17px; margin: 0; }
+h1 a { color: inherit; text-decoration: none; }
+.sub { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 6px; }
+button { font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; cursor: pointer; }
+button[aria-pressed="true"] { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.seg { display: inline-flex; }
+.seg button { border-radius: 0; }
+.seg button:first-child { border-radius: 6px 0 0 6px; }
+.seg button:last-child { border-radius: 0 6px 6px 0; border-left: none; }
+.wrap { flex: 1; min-height: 0; display: flex; }
+.mapbox { position: relative; flex: 1; min-width: 0; overflow: hidden; }
+canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; cursor: grab; }
+canvas.drag { cursor: grabbing; }
+canvas.over { cursor: pointer; }
+.ctl { position: absolute; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 6px; }
+.ctl button { min-width: 36px; padding: 6px 10px; font-size: 13px; background: var(--panel); }
+.tip { position: absolute; z-index: 2; pointer-events: none; max-width: 280px; padding: 6px 9px; border: 1px solid var(--line); border-radius: 6px;
+       background: var(--panel); font-size: 12px; line-height: 1.4; display: none; box-shadow: 0 2px 8px rgba(0, 0, 0, .12); }
+.tip b { display: block; font-size: 13px; }
+.panel { flex: none; width: 440px; overflow-y: auto; border-left: 1px solid var(--line); background: var(--panel); padding: 12px 16px 0; }
+.panel h2 { font-size: 15px; margin: 2px 0 6px; line-height: 1.4; }
+.note { color: var(--muted); font-size: 12px; margin: 4px 0; }
+.legend { list-style: none; margin: 8px 0; padding: 0; font-size: 12px; color: var(--muted); }
+.legend li { display: flex; gap: 8px; align-items: center; margin: 3px 0; }
+.sw { flex: none; display: inline-block; width: 22px; height: 0; border-top: 3px solid var(--near); border-radius: 2px; }
+.sw.far { border-top-color: var(--far); }
+.dot { flex: none; display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px; }
+.dot.a { background: var(--side-a); } .dot.b { background: var(--side-b); }
+.legend li.w { flex-wrap: wrap; column-gap: 12px; }
+.widths { display: inline-flex; gap: 12px; align-items: center; white-space: nowrap; }
+.widths > span { display: inline-flex; gap: 5px; align-items: center; }
+.sortbar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+.rows { list-style: none; margin: 0 -8px; padding: 0; }
+.rows li { border-bottom: 1px solid var(--line); }
+.rows button { display: flex; gap: 10px; width: 100%; text-align: left; border: none; border-radius: 0; background: none; padding: 7px 8px; font-size: 13px; line-height: 1.45; }
+.rows button:hover, .rows button.hl { background: var(--hover); }
+.rows .sw { margin-top: 9px; }
+.rows .dot { margin-top: 5px; }
+.rows .t { flex: 1; min-width: 0; }
+.rows .x { color: var(--muted); padding: 0 3px; }
+.num { display: block; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.back { margin: 2px 0 8px; }
+.path { color: var(--muted); font-size: 12px; margin: 2px 0 6px; }
+.stats { font-size: 13px; margin: 6px 0 10px; }
+.colhead { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 12px; font-weight: 600; position: sticky; top: -12px; background: var(--panel); padding: 6px 0; border-bottom: 1px solid var(--line); z-index: 1; }
+.colhead div { display: flex; gap: 6px; align-items: flex-start; min-width: 0; }
+.colhead .dot { margin-top: 3px; }
+.evg { margin: 10px 0 12px; }
+.evh { color: var(--muted); font-size: 11px; margin-bottom: 3px; }
+.evh a { color: var(--accent); }
+.ev { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ev > div { background: var(--card); border: 1px solid var(--line); border-left: 3px solid var(--side-a); border-radius: 4px; padding: 4px 8px; font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
+.ev > div.b { border-left-color: var(--side-b); }
+.ev p { margin: 2px 0; }
+.ev p + p { border-top: 1px dashed var(--line); padding-top: 3px; }
+.ev .ja { color: var(--muted); font-size: 11px; }
+.take { color: var(--muted); font-size: 12px; margin: 4px 0 8px; }
+footer { color: var(--muted); font-size: 11px; padding: 16px 0 16px; border-top: 1px solid var(--line); margin-top: 16px; }
+footer a { color: var(--accent); }
+.err { color: var(--fg); font-weight: 600; }
+@media (max-width: 760px) {
+  header { padding: 8px 16px 6px; }
+  h1 { font-size: 16px; }
+  .sub:not(.err):not(.loading) { display: none; } /* 説明は地図のすぐ下の欄にもある。地図を広く取る */
+  .bar { margin-top: 4px; gap: 5px; }
+  .bar button { font-size: 11.5px; padding: 4px 8px; }
+  .wrap { flex-direction: column; }
+  .mapbox { flex: 1 1 0; }
+  .panel { flex: 1.15 1 0; width: auto; border-left: none; border-top: 1px solid var(--line); }
+  .ctl { right: 8px; bottom: 8px; flex-direction: row; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="hrow"><h1><a href="../">←</a> <span id="title">一緒に言われた話題</span></h1><button id="lang" hidden>EN</button></div>
+  <div class="sub loading" id="sub">読み込み中…</div>
+  <div class="bar" id="bar" hidden>
+    <span class="seg" role="group" id="tiers"><button id="tier1" aria-pressed="true"></button><button id="tier2" aria-pressed="false"></button></span>
+    <button id="far" aria-pressed="false"></button>
+  </div>
+</header>
+<div class="wrap">
+  <div class="mapbox" id="mapbox">
+    <canvas id="cv" role="img"></canvas>
+    <div class="ctl" id="ctl" hidden>
+      <button id="zin" aria-label="zoom in">＋</button>
+      <button id="zout" aria-label="zoom out">－</button>
+      <button id="fit" aria-label="fit">⤢</button>
+    </div>
+    <div class="tip" id="tip"></div>
+  </div>
+  <aside class="panel" id="panel"></aside>
+</div>
+<script>
+"use strict";
+// 組の選び方（偶然の見込み・有意の基準・地図上の距離）と根拠の投稿は scripts/build_links_cooccurrence.py で事前に決めてある。
+// ここでは public_result.json（意見の文・位置・英訳）と、その組の JSON を読んで描くだけ。
+const I18N = {
+  ja: {
+    title: "一緒に言われた話題",
+    canvas: "広聴AI の散布図の上に、同じ投稿で一緒に書かれた話題の組を線で結んだ地図。同じ組は一覧から選べる。",
+    sub: "同じ投稿の中で一緒に書かれた話題（下位クラスタ）を、偶然では説明できない組だけ線で結ぶ。線を押すと、両方を書いた投稿の意見が出る。",
+    tier1: (n) => `厳しい基準 ${n} 組`, tier2: (n) => `緩い基準 ${n} 組`, far: (n) => `離れた組だけ（${n}）`,
+    head: (n, f) => `つながり ${n} 組（うち地図の上で離れた組 ${f}）`,
+    expl: (M) => [
+      `地図は広聴AI の散布図（文の似かたで置いた配置）。点は意見 ${M.n_arguments.toLocaleString()} 件、小さな丸は下位クラスタ ${M.n_clusters} の重心。`,
+      `線は、同じ投稿（${M.group_by} が同じ意見をまとめた ${M.n_groups.toLocaleString()} 本）の中で一緒に書かれた下位クラスタの組。偶然の見込みよりずっと多い組だけを引く。`,
+      M.null === "simple" ? "見込みは「x を含む投稿の数 × y を含む投稿の数 ÷ 投稿の数」。"
+        : "見込みは、含む話題（下位クラスタ）の数が同じ投稿どうしで、x と y が独立に入るとして出し、足し合わせたもの。話題が 1 つだけの投稿は組を作れず、話題の多い長い投稿ほど組を作りやすいため。",
+      `厳しい基準：全 ${M.n_tests.toLocaleString()} 組で Bonferroni ${pctTxt(M.alpha)}。緩い基準：偽発見率 ${pctTxt(M.fdr)}（Benjamini–Hochberg）。`,
+    ],
+    legFar: (M) => `地図の上で離れた組（重心どうしが地図の対角線の ${pctTxt(M.far)} 以上）。散布図では離れて見えるのに、同じ投稿で一緒に書かれる`,
+    legNear: "近い組（多くは同じ話題を割った隣どうし）",
+    legW: "太さ＝一緒に書かれた投稿の数",
+    posts: (n) => `${n} 本`, sortBy: "並べ方：", sortD: "地図上の距離", sortK: "投稿の数", sortL: "偶然の何倍か",
+    rowNum: (p) => `${p.k} 本 · 偶然の ${liftTxt(p.lift)} 倍 · 距離 ${pctTxt(p.d)}${p.cross ? " · 上位クラスタをまたぐ" : ""}`,
+    none: "この条件に当たる組はない。", back: "← 一覧へ",
+    tops: (a, b) => a === b ? `どちらも上位クラスタ「${a}」` : `上位クラスタ：「${a}」と「${b}」`,
+    stat: (p, M) => `${p.k} 本の投稿で一緒に書かれた。偶然なら ${numTxt(p.lam)} 本で、その ${liftTxt(p.lift)} 倍（p = ${pTxt(p.p)}、${p.tier === 1 ? "厳しい基準でも残る" : "緩い基準でだけ残る"}）。地図の上の距離は対角線の ${pctTxt(p.d)}。`,
+    sim: (p, M) => `埋め込みで見た文の近さは、全 ${M.n_tests.toLocaleString()} 組を近い順に並べて上から ${pctTxt(p.sim_top)} の所。`,
+    evHead: "両方を書いた投稿（左右がそれぞれの側の意見）", src: "出典",
+    cl: (c, n, M) => `意見 ${c.size.toLocaleString()} 件・投稿 ${c.n.toLocaleString()} 本。偶然では説明できない相手 ${n} 組。`,
+    hidden: (n) => `「離れた組だけ」にしているので、近い相手 ${n} 組は隠れている。`,
+    tipC: (n) => `相手 ${n} 組`, top: "上位クラスタ",
+    mismatch: "組の JSON（?links=）が、この public_result.json（?data=）から作ったものではない。scripts/build_links_cooccurrence.py で作って ?links= に渡す。",
+    fail: "読み込みに失敗しました: ",
+    foot: "出典：チームみらい・しゃべれるマニフェスト参加者 / データセット ", code: "ソースコード", built: (M) => `${M.group_by} で束ねた · 作成 ${M.built}`,
+  },
+  en: {
+    title: "Topics written together",
+    canvas: "Kouchou-AI's scatter plot with lines joining topics written together in the same posts. The same pairs can be chosen from the list.",
+    sub: "Lines join pairs of topics (lower clusters) that the same post mentions together more often than chance explains. Tap a line to see those posts.",
+    tier1: (n) => `Strict (${n})`, tier2: (n) => `Loose (${n})`, far: (n) => `Far apart only (${n})`,
+    head: (n, f) => `${n} links (${f} of them far apart on the map)`,
+    expl: (M) => [
+      `The map is Kouchou-AI's scatter plot (opinions placed by how similar their sentences are). Dots are ${M.n_arguments.toLocaleString()} opinions; small circles are the centres of ${M.n_clusters} lower clusters.`,
+      `A line joins two lower clusters written together in the same post (opinions sharing ${M.group_by}: ${M.n_groups.toLocaleString()} posts), only where that happens far more often than chance.`,
+      M.null === "simple" ? "Chance is “posts containing x × posts containing y ÷ all posts”."
+        : "Chance is computed among posts with the same number of topics (lower clusters), treating x and y as independent, and summed: a single-topic post cannot form a pair, and long posts with many topics form pairs more easily.",
+      `Strict: Bonferroni ${pctTxt(M.alpha)} over all ${M.n_tests.toLocaleString()} pairs. Loose: false discovery rate ${pctTxt(M.fdr)} (Benjamini–Hochberg).`,
+    ],
+    legFar: (M) => `Far apart on the map (centres at least ${pctTxt(M.far)} of the map diagonal apart): they look distant in the scatter plot, yet the same posts mention both`,
+    legNear: "Nearby pairs (mostly neighbouring splits of one topic)",
+    legW: "Width = number of posts mentioning both",
+    posts: (n) => `${n}`, sortBy: "Sort by:", sortD: "map distance", sortK: "posts", sortL: "times chance",
+    rowNum: (p) => `${p.k} posts · ${liftTxt(p.lift)}× chance · distance ${pctTxt(p.d)}${p.cross ? " · across top clusters" : ""}`,
+    none: "No pairs match.", back: "← List",
+    tops: (a, b) => a === b ? `Both in the top cluster “${a}”` : `Top clusters: “${a}” and “${b}”`,
+    stat: (p, M) => `Written together in ${p.k} posts, against ${numTxt(p.lam)} expected by chance: ${liftTxt(p.lift)} times (p = ${pTxt(p.p)}; ${p.tier === 1 ? "passes the strict threshold" : "passes the loose threshold only"}). Their centres are ${pctTxt(p.d)} of the map diagonal apart.`,
+    sim: (p, M) => ` By embedding similarity, it ranks in the top ${pctTxt(p.sim_top)} of all ${M.n_tests.toLocaleString()} pairs, closest first.`,
+    evHead: "Posts that mention both (left and right are the two sides)", src: "source",
+    cl: (c, n, M) => `${c.size.toLocaleString()} opinions in ${c.n.toLocaleString()} posts. ${n} partner(s) beyond chance.`,
+    hidden: (n) => `“Far apart only” is on, so ${n} nearby partner(s) are hidden.`,
+    tipC: (n) => `${n} partner(s)`, top: "Top cluster",
+    mismatch: "The pair file (?links=) was not built from this public_result.json (?data=). Build it with scripts/build_links_cooccurrence.py and pass it as ?links=.",
+    fail: "Failed to load: ",
+    foot: "Source: Team Mirai and the participants of Shabereru Manifesto / dataset ", code: "source code", built: (M) => `grouped by ${M.group_by} · built ${M.built}`,
+  },
+};
+const FONT = 'system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif';
+const $ = (id) => document.getElementById(id);
+const cv = $("cv"), ctx = cv.getContext("2d");
+const pctTxt = (v) => { const x = v * 100; return (x >= 10 ? Math.round(x) : x >= 1 ? x.toFixed(1).replace(/\.0$/, "") : x.toFixed(2).replace(/0$/, "")) + "%"; };
+const liftTxt = (v) => v >= 10 ? Math.round(v).toString() : v.toFixed(1);
+const numTxt = (v) => v >= 10 ? v.toFixed(0) : v >= 1 ? v.toFixed(1) : v.toFixed(2);
+const SUP = { "-": "⁻", 0: "⁰", 1: "¹", 2: "²", 3: "³", 4: "⁴", 5: "⁵", 6: "⁶", 7: "⁷", 8: "⁸", 9: "⁹" };
+const pTxt = (p) => { if (p >= 0.001) return p.toPrecision(2); const e = Math.floor(Math.log10(p)); return `${(p / 10 ** e).toFixed(1)}×10${String(e).replace(/./g, (c) => SUP[c])}`; };
+
+let P = null, M = null, ready = false, lang = "ja", tier = 1, farOnly = false, sortKey = "d", sel = null, hover = null;
+let NP = 0, PX = null, PY = null, bounds = null;
+const CL = new Map();      // 下位クラスタ id -> { id, x, y, n（含む投稿の数）, size（意見の数）, top, idx: 意見の添字 }
+const TOPS = [];           // 上位クラスタ（地図に名前を出す。大きい順）
+const ARG = new Map();     // arg_id -> 意見の添字
+const CLINFO = new Map();  // public_result.json のクラスタ（表札・説明）
+let PAIRS = [], vis = [], linked = new Set();
+const en = () => (P.translations && P.translations.en) || {};
+const cLabel = (id) => { const e = en().clusters; return (lang === "en" && e && e[id] && e[id].label) || (CLINFO.get(id) || {}).label || id; };
+const cTake = (id) => { const e = en().clusters; return (lang === "en" && e && e[id] && e[id].takeaway) || (CLINFO.get(id) || {}).takeaway || ""; };
+const aText = (i) => { const a = P.arguments[i], e = en().arguments; return (lang === "en" && e && e[a.arg_id]) || a.argument; };
+
+// ---- 表示する組 ----
+function refresh() {
+  vis = PAIRS.filter((p) => p.tier <= tier && (!farOnly || p.far));
+  linked = new Set();
+  for (const p of vis) { linked.add(p.A); linked.add(p.B); }
+  if (hover && !vis.includes(hover)) hover = null;
+  if (sel && sel.kind === "pair" && !vis.includes(sel.p)) { sel = null; setHash(); }
+}
+// 選んでいるものを URL の #p= / #c= に残す
+function setHash() {
+  const h = !sel ? "" : sel.kind === "pair" ? `#p=${sel.p.A.id},${sel.p.B.id}` : `#c=${sel.c.id}`;
+  history.replaceState(null, "", location.pathname + location.search + h);
+}
+const lw = (k) => Math.max(1.2, 1.25 * Math.sqrt(k) - 0.8);
+
+// ---- 地図の座標 ----
+let W = 0, H = 0, dpr = 1, k = 1, tx = 0, ty = 0, fitK = 1, atFit = true;
+const sx = (x) => x * k + tx, sy = (y) => -y * k + ty;
+const fitPad = () => Math.min(28, W * 0.04);
+const scaleFor = (x0, x1, y0, y1, pad) => Math.min((W - 2 * pad) / Math.max(1e-9, x1 - x0), (H - 2 * pad) / Math.max(1e-9, y1 - y0));
+function fitTo(x0, x1, y0, y1, pad, maxK) {
+  k = Math.min(scaleFor(x0, x1, y0, y1, pad), maxK || Infinity);
+  tx = W / 2 - (x0 + x1) / 2 * k; ty = H / 2 + (y0 + y1) / 2 * k;
+}
+function fit() { fitTo(bounds.x0, bounds.x1, bounds.y0, bounds.y1, fitPad()); fitK = k; atFit = true; requestDraw(); }
+function zoomAt(X, Y, f) {
+  const nk = Math.max(fitK * 0.5, Math.min(fitK * 60, k * f));
+  const wx = (X - tx) / k, wy = -(Y - ty) / k; k = nk; tx = X - wx * k; ty = Y + wy * k; atFit = false; requestDraw();
+}
+// 大きさが変わったら、全体表示のままなら全体に合わせ直し、寄っていたら画面の中心の位置を保つ
+function resize() {
+  const r = $("mapbox").getBoundingClientRect();
+  const ow = W, oh = H, cx = (ow / 2 - tx) / k, cy = -(oh / 2 - ty) / k;
+  W = r.width; H = r.height; dpr = window.devicePixelRatio || 1;
+  cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  if (!bounds || !W || !H) return;
+  if (atFit || !ow) { fit(); return; }
+  fitK = scaleFor(bounds.x0, bounds.x1, bounds.y0, bounds.y1, fitPad());
+  tx = W / 2 - cx * k; ty = H / 2 + cy * k; requestDraw();
+}
+// 選んだ組の両端が画面の外なら、両端が入るまで引く
+function ensureVisible(ids) {
+  const cs = ids.map((id) => CL.get(id));
+  const m = 40;
+  if (cs.every((c) => sx(c.x) > m && sx(c.x) < W - m && sy(c.y) > m && sy(c.y) < H - m)) return;
+  const xs = cs.map((c) => c.x), ys = cs.map((c) => c.y);
+  fitTo(Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys), Math.min(90, W * 0.2), k);
+  atFit = false;
+}
+
+// ---- 色（CSS の変数から読む。ダークモードの切り替えでも読み直す）----
+let C = {};
+function readColors() {
+  const s = getComputedStyle(document.documentElement);
+  for (const n of ["bg", "fg", "muted", "dot", "dot-dim", "near", "far", "side-a", "side-b", "halo"]) C[n] = s.getPropertyValue("--" + n).trim();
+  requestDraw();
+}
+
+// ---- 文字（地図の上の名前）。日本語は 1 文字ずつ、英語は単語ごとに折り返し、入らなければ「…」----
+const wrapCache = new Map();
+function wrapText(text, font, maxW, maxLines) {
+  const key = font + "|" + maxW + "|" + maxLines + "|" + text;
+  let r = wrapCache.get(key);
+  if (r) return r;
+  ctx.font = font;
+  const toks = lang === "en" ? text.split(/(\s+)/).filter((t) => t) : [...text];
+  const lines = []; let line = "";
+  for (const t of toks) {
+    const cand = line + t;
+    if (line && ctx.measureText(cand).width > maxW) { lines.push(line.trimEnd()); line = t.trimStart(); }
+    else line = cand;
+  }
+  if (line) lines.push(line.trimEnd());
+  if (lines.length > maxLines) {
+    lines.length = maxLines;
+    let l = lines[maxLines - 1];
+    while (l.length && ctx.measureText(l + "…").width > maxW) l = l.slice(0, -1);
+    lines[maxLines - 1] = l + "…";
+  }
+  r = { lines, w: Math.max(...lines.map((l) => ctx.measureText(l).width)) };
+  wrapCache.set(key, r);
+  return r;
+}
+function drawLabel(lines, x, y, lh, align, fill) {
+  ctx.textAlign = align; ctx.textBaseline = "middle"; ctx.lineJoin = "round";
+  const y0 = y - (lines.length - 1) * lh / 2;
+  ctx.strokeStyle = C.halo; ctx.lineWidth = 4;
+  lines.forEach((l, i) => ctx.strokeText(l, x, y0 + i * lh));
+  ctx.fillStyle = fill;
+  lines.forEach((l, i) => ctx.fillText(l, x, y0 + i * lh));
+}
+const overlaps = (b, list) => list.some((o) => b.x0 < o.x1 && b.x1 > o.x0 && b.y0 < o.y1 && b.y1 > o.y0);
+
+// ---- 描く ----
+let pending = false;
+function requestDraw() { if (!pending) { pending = true; requestAnimationFrame(() => { pending = false; draw(); }); } }
+function sides() {
+  // 選んでいるものの左の側（青）と右の側（緑みの青）
+  if (!sel) return null;
+  if (sel.kind === "pair") return { a: [sel.p.A], b: [sel.p.B], pairs: [sel.p] };
+  const ps = vis.filter((p) => p.A === sel.c || p.B === sel.c);
+  return { a: [sel.c], b: ps.map((p) => (p.A === sel.c ? p.B : p.A)), pairs: ps };
+}
+function draw() {
+  if (!ready || !W) return;
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, H);
+  const S = sides();
+  // 意見の点
+  ctx.fillStyle = S ? C["dot-dim"] : C.dot;
+  ctx.beginPath();
+  for (let i = 0; i < NP; i++) {
+    const X = PX[i] * k + tx, Y = -PY[i] * k + ty;
+    if (X < -2 || X > W + 2 || Y < -2 || Y > H + 2) continue;
+    ctx.rect(X - 0.8, Y - 0.8, 1.6, 1.6);
+  }
+  ctx.fill();
+  if (S) {
+    for (const [cs, color] of [[S.b, C["side-b"]], [S.a, C["side-a"]]]) {
+      ctx.fillStyle = color; ctx.beginPath();
+      for (const c of cs) for (const i of c.idx) ctx.rect(PX[i] * k + tx - 1.3, -PY[i] * k + ty - 1.3, 2.6, 2.6);
+      ctx.fill();
+    }
+  }
+  // 選んだもの（と相手）の名前の置き場所を先に決める。上位クラスタの名前はそこを避ける
+  const selLabels = S ? placeSelLabels(S) : [];
+  // 上位クラスタの名前（線より下に置く。重なる名前は大きいまとまりを優先して省く）
+  const boxes = selLabels.map((l) => l.box);
+  const tf = `${lang === "en" ? 11 : 12}px ${FONT}`, tlh = lang === "en" ? 13 : 15;
+  ctx.globalAlpha = S ? 0.55 : 1;
+  for (const t of TOPS) {
+    const w = wrapText(cLabel(t.id), tf, lang === "en" ? 170 : 150, 2);
+    const X = sx(t.x), Y = sy(t.y), h = w.lines.length * tlh;
+    const b = { x0: X - w.w / 2 - 3, x1: X + w.w / 2 + 3, y0: Y - h / 2 - 2, y1: Y + h / 2 + 2 };
+    if (b.x1 < 0 || b.x0 > W || b.y1 < 0 || b.y0 > H || overlaps(b, boxes)) continue;
+    boxes.push(b);
+    ctx.font = tf; drawLabel(w.lines, X, Y, tlh, "center", C.muted);
+  }
+  ctx.globalAlpha = 1;
+  // 線：近い組 → 離れた組 → 選んだ組・指している組の順に重ねる
+  ctx.lineCap = "round";
+  // 色と太さが同じ線は 1 つの path にまとめて描く（stroke の回数を減らす）。描画 1 回の大半は意見の点の塗りで、線は数 ms
+  const rel = new Set(S ? S.pairs : []);
+  const batches = new Map();
+  for (const p of vis) {
+    if (rel.has(p) || p === hover) continue;
+    const key = (p.far ? 1 : 0) * 1000 + p.k;
+    if (!batches.has(key)) batches.set(key, []);
+    batches.get(key).push(p);
+  }
+  ctx.globalAlpha = S ? 0.16 : 1;
+  for (const key of [...batches.keys()].sort((a, b) => a - b)) {
+    const ps = batches.get(key);
+    ctx.strokeStyle = ps[0].far ? C.far : C.near; ctx.lineWidth = lw(ps[0].k);
+    ctx.beginPath();
+    for (const p of ps) { ctx.moveTo(sx(p.A.x), sy(p.A.y)); ctx.lineTo(sx(p.B.x), sy(p.B.y)); }
+    ctx.stroke();
+  }
+  // 下位クラスタの重心（線の無いものは小さく薄く）
+  const dots = (list, r, color) => {
+    ctx.fillStyle = color; ctx.beginPath();
+    for (const c of list) {
+      const X = sx(c.x), Y = sy(c.y);
+      if (X < -6 || X > W + 6 || Y < -6 || Y > H + 6) continue;
+      ctx.moveTo(X + r, Y); ctx.arc(X, Y, r, 0, 7);
+    }
+    ctx.fill();
+  };
+  ctx.globalAlpha = S ? 0.25 : 0.5;
+  dots([...CL.values()].filter((c) => !linked.has(c)), 1.6, C.muted);
+  const nr = W < 500 ? 1.8 : 2.3;
+  ctx.globalAlpha = S ? 0.35 : 0.9;
+  dots(linked, nr + 1.3, C.bg);
+  dots(linked, nr, C.fg);
+  ctx.globalAlpha = 1;
+  // 選んだ組：根拠の投稿ごとに、両側の意見の点どうしを細い線で結ぶ
+  if (S && sel.kind === "pair") {
+    const p = sel.p;
+    ctx.strokeStyle = C.fg; ctx.globalAlpha = 0.3; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (const e of p.ev) for (const i of e[1]) for (const j of e[2]) { ctx.moveTo(PX[i] * k + tx, -PY[i] * k + ty); ctx.lineTo(PX[j] * k + tx, -PY[j] * k + ty); }
+    ctx.stroke(); ctx.globalAlpha = 1;
+    for (const [side, color] of [[2, C["side-b"]], [1, C["side-a"]]]) for (const e of p.ev) for (const i of e[side]) {
+      const X = PX[i] * k + tx, Y = -PY[i] * k + ty;
+      ctx.fillStyle = C.bg; ctx.beginPath(); ctx.arc(X, Y, 4.6, 0, 7); ctx.fill();
+      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(X, Y, 3.2, 0, 7); ctx.fill();
+    }
+  }
+  const strong = S ? S.pairs : [];
+  for (const p of hover && !rel.has(hover) ? [...strong, hover] : strong) {
+    const X0 = sx(p.A.x), Y0 = sy(p.A.y), X1 = sx(p.B.x), Y1 = sy(p.B.y);
+    ctx.strokeStyle = C.bg; ctx.lineWidth = lw(p.k) + 4; ctx.beginPath(); ctx.moveTo(X0, Y0); ctx.lineTo(X1, Y1); ctx.stroke();
+    ctx.strokeStyle = p === hover && !rel.has(p) ? (p.far ? C.far : C.fg) : C.fg; ctx.lineWidth = lw(p.k) + 1;
+    ctx.beginPath(); ctx.moveTo(X0, Y0); ctx.lineTo(X1, Y1); ctx.stroke();
+  }
+  if (S) {
+    const ring = (c, color, r) => {
+      const X = sx(c.x), Y = sy(c.y);
+      ctx.fillStyle = C.bg; ctx.beginPath(); ctx.arc(X, Y, r + 2, 0, 7); ctx.fill();
+      ctx.fillStyle = color; ctx.beginPath(); ctx.arc(X, Y, r, 0, 7); ctx.fill();
+    };
+    for (const c of S.b) ring(c, C["side-b"], 5);
+    for (const c of S.a) ring(c, C["side-a"], 6);
+    for (const l of selLabels) { ctx.font = l.font; drawLabel(l.lines, l.x, l.y, 16, l.align, C.fg); }
+  }
+}
+// 選んだものと相手の名前を、重心の右・左・上・下の順に、ほかの名前と画面の端に当たらない所へ置く。
+// 置けない相手の名前は省く（全部は右の欄にある）
+function placeSelLabels(S) {
+  const out = [], placed = [];
+  const lf = (b) => `${b ? 600 : 400} ${lang === "en" ? 12 : 12.5}px ${FONT}`, llh = 16;
+  const list = [...S.a.map((c) => [c, true]), ...[...S.b].sort((x, y) => y.size - x.size).map((c) => [c, false])];
+  for (const [c, isA] of list) {
+    const font = lf(isA), w = wrapText(cLabel(c.id), font, lang === "en" ? 210 : 190, 3);
+    const X = sx(c.x), Y = sy(c.y), h = w.lines.length * llh;
+    const cands = [[X + 11, Y, "left"], [X - 11, Y, "right"], [X, Y - h / 2 - 12, "center"], [X, Y + h / 2 + 12, "center"]];
+    for (const [lx, ly, al] of cands) {
+      const x0 = al === "left" ? lx : al === "right" ? lx - w.w : lx - w.w / 2;
+      const b = { x0: x0 - 2, x1: x0 + w.w + 2, y0: ly - h / 2 - 1, y1: ly + h / 2 + 1 };
+      if (overlaps(b, placed) || b.x0 < 2 || b.x1 > W - 2 || b.y0 < 2 || b.y1 > H - 2) continue;
+      placed.push(b); out.push({ lines: w.lines, x: lx, y: ly, align: al, font, box: b });
+      break;
+    }
+  }
+  return out;
+}
+
+// ---- 押す・指す ----
+function segDist(px, py, x0, y0, x1, y1) {
+  const dx = x1 - x0, dy = y1 - y0, l2 = dx * dx + dy * dy;
+  const t = l2 ? Math.max(0, Math.min(1, ((px - x0) * dx + (py - y0) * dy) / l2)) : 0;
+  return Math.hypot(px - x0 - t * dx, py - y0 - t * dy);
+}
+function hitTest(x, y, touch) {
+  const rc = touch ? 18 : 10, rl = touch ? 14 : 7;
+  let best = null, bd = Infinity;
+  for (const c of linked) {
+    const d = Math.hypot(sx(c.x) - x, sy(c.y) - y) - 4; // 重心は線の端に乗っているので少し優先する
+    if (d < rc - 4 && d < bd) { bd = d; best = { kind: "cluster", c }; }
+  }
+  for (const p of vis) {
+    const d = segDist(x, y, sx(p.A.x), sy(p.A.y), sx(p.B.x), sy(p.B.y)) - lw(p.k) / 2;
+    if (d < rl && d < bd) { bd = d; best = { kind: "pair", p }; }
+  }
+  return best;
+}
+const tip = $("tip");
+function showTip(h, x, y) {
+  tip.innerHTML = "";
+  const b = document.createElement("b"), s = document.createElement("div");
+  if (h.kind === "pair") { b.textContent = I18N[lang].rowNum(h.p); s.textContent = `${cLabel(h.p.A.id)} × ${cLabel(h.p.B.id)}`; }
+  else { const n = vis.filter((p) => p.A === h.c || p.B === h.c).length; b.textContent = I18N[lang].tipC(n); s.textContent = cLabel(h.c.id); }
+  tip.append(b, s); tip.style.display = "block";
+  const tw = tip.offsetWidth, th = tip.offsetHeight;
+  tip.style.left = Math.min(W - tw - 6, x + 14) + "px"; tip.style.top = (y + 16 + th > H ? y - th - 10 : y + 16) + "px";
+}
+function hideTip() { tip.style.display = "none"; }
+const ptrs = new Map(); let moved = 0, pinch0 = null;
+const posOf = (e) => { const r = cv.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+cv.addEventListener("pointerdown", (e) => { cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, posOf(e)); moved = 0; cv.classList.add("drag"); hideTip(); });
+cv.addEventListener("pointermove", (e) => {
+  const cur = posOf(e);
+  if (!ptrs.has(e.pointerId)) {
+    if (e.pointerType !== "mouse") return;
+    const h = hitTest(cur.x, cur.y, false);
+    const hp = h && h.kind === "pair" ? h.p : null;
+    if (hp !== hover) { hover = hp; requestDraw(); }
+    cv.classList.toggle("over", !!h);
+    if (h) showTip(h, cur.x, cur.y); else hideTip();
+    return;
+  }
+  const prev = ptrs.get(e.pointerId); ptrs.set(e.pointerId, cur);
+  if (ptrs.size === 1) { tx += cur.x - prev.x; ty += cur.y - prev.y; moved += Math.abs(cur.x - prev.x) + Math.abs(cur.y - prev.y); if (moved > 0) atFit = false; requestDraw(); }
+  else if (ptrs.size === 2) {
+    const [a, b] = [...ptrs.values()], d = Math.hypot(a.x - b.x, a.y - b.y);
+    if (pinch0) zoomAt((a.x + b.x) / 2, (a.y + b.y) / 2, d / pinch0);
+    pinch0 = d; moved = 99;
+  }
+});
+const up = (e) => {
+  const had = ptrs.delete(e.pointerId);
+  if (ptrs.size < 2) pinch0 = null;
+  if (!ptrs.size) cv.classList.remove("drag");
+  if (had && e.type === "pointerup" && moved < 6 && !ptrs.size) {
+    const p = posOf(e), h = hitTest(p.x, p.y, e.pointerType !== "mouse");
+    select(h, false);
+  }
+};
+cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
+cv.addEventListener("pointerleave", () => { if (hover) { hover = null; requestDraw(); } hideTip(); });
+cv.addEventListener("wheel", (e) => { e.preventDefault(); const p = posOf(e); zoomAt(p.x, p.y, Math.exp(-e.deltaY * 0.0015)); }, { passive: false });
+$("zin").addEventListener("click", () => zoomAt(W / 2, H / 2, 1.6));
+$("zout").addEventListener("click", () => zoomAt(W / 2, H / 2, 1 / 1.6));
+$("fit").addEventListener("click", fit);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape" && sel) select(null); });
+
+// ---- 右（スマホでは下）の欄 ----
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function select(s, fromPanel) {
+  if (!ready) return; // 読み込み前・失敗したあとは何もしない（別のレポートの数を出さない）
+  sel = s && s.kind ? s : null; hover = null; hideTip();
+  if (sel && fromPanel) ensureVisible(sel.kind === "pair" ? [sel.p.A.id, sel.p.B.id] : [sel.c.id]);
+  setHash();
+  renderPanel(); $("panel").scrollTop = 0; requestDraw();
+}
+function sorted(list) {
+  const f = { d: (p) => -p.d, k: (p) => -p.k, l: (p) => -p.lift }[sortKey];
+  return [...list].sort((p, q) => f(p) - f(q) || p.p - q.p);
+}
+function pairRow(p, other) {
+  const li = el("li"), b = el("button");
+  if (other) { const d = el("span", "dot b"); b.appendChild(d); }
+  else { const s = el("span", "sw" + (p.far ? " far" : "")); s.style.borderTopWidth = Math.min(6, lw(p.k)) + "px"; b.appendChild(s); }
+  const t = el("span", "t");
+  if (other) t.appendChild(document.createTextNode(cLabel(other.id)));
+  else { t.appendChild(document.createTextNode(cLabel(p.A.id))); t.appendChild(el("span", "x", "×")); t.appendChild(document.createTextNode(cLabel(p.B.id))); }
+  t.appendChild(el("span", "num", I18N[lang].rowNum(p)));
+  b.appendChild(t);
+  b.addEventListener("click", () => select({ kind: "pair", p }, true));
+  b.addEventListener("mouseenter", () => { hover = p; requestDraw(); });
+  b.addEventListener("mouseleave", () => { if (hover === p) { hover = null; requestDraw(); } });
+  li.appendChild(b);
+  return li;
+}
+function renderPanel() {
+  const t = I18N[lang], pn = $("panel");
+  pn.innerHTML = "";
+  if (!sel) {
+    pn.appendChild(el("h2", null, t.head(vis.length, vis.filter((p) => p.far).length)));
+    for (const s of t.expl(M)) pn.appendChild(el("p", "note", s));
+    const lg = el("ul", "legend");
+    const li1 = el("li"); li1.append(el("span", "sw far"), el("span", null, t.legFar(M)));
+    const li2 = el("li"); li2.append(el("span", "sw"), el("span", null, t.legNear));
+    const li3 = el("li", "w"); li3.appendChild(el("span", null, t.legW));
+    const ws = el("span", "widths");
+    for (const n of [5, 10, 20]) { const s = el("span"); const sw = el("span", "sw"); sw.style.borderTopWidth = lw(n) + "px"; s.append(sw, el("span", null, t.posts(n))); ws.appendChild(s); }
+    li3.appendChild(ws);
+    lg.append(li1, li2, li3); pn.appendChild(lg);
+    const sb = el("div", "sortbar"); sb.appendChild(el("span", null, t.sortBy));
+    for (const [key, label] of [["d", t.sortD], ["k", t.sortK], ["l", t.sortL]]) {
+      const b = el("button", null, label); b.setAttribute("aria-pressed", sortKey === key);
+      b.addEventListener("click", () => { sortKey = key; renderPanel(); });
+      sb.appendChild(b);
+    }
+    pn.appendChild(sb);
+    if (!vis.length) pn.appendChild(el("p", "note", t.none));
+    const ul = el("ul", "rows");
+    for (const p of sorted(vis)) ul.appendChild(pairRow(p));
+    pn.appendChild(ul);
+  } else if (sel.kind === "pair") {
+    const p = sel.p;
+    const bk = el("button", "back", t.back); bk.addEventListener("click", () => select(null)); pn.appendChild(bk);
+    const h = el("h2");
+    h.append(el("span", "dot a"), " ", cLabel(p.A.id), el("span", "x", " × "), el("span", "dot b"), " ", cLabel(p.B.id));
+    pn.appendChild(h);
+    pn.appendChild(el("div", "path", t.tops(cLabel(p.A.top), cLabel(p.B.top))));
+    pn.appendChild(el("p", "stats", t.stat(p, M) + (p.sim_top != null ? t.sim(p, M) : "")));
+    pn.appendChild(el("div", "note", t.evHead));
+    const ch = el("div", "colhead");
+    const ha = el("div"); ha.append(el("span", "dot a"), el("span", null, cLabel(p.A.id)));
+    const hb = el("div"); hb.append(el("span", "dot b"), el("span", null, cLabel(p.B.id)));
+    ch.append(ha, hb); pn.appendChild(ch);
+    const showSrc = P.config ? P.config.enable_source_link !== false : true;
+    for (const [g, as, bs] of p.ev) {
+      const box = el("div", "evg");
+      const head = el("div", "evh", `${M.group_by} ${g}`);
+      const url = P.arguments[as[0]].url;
+      if (url && showSrc) { const a = el("a", null, t.src); a.href = url; a.target = "_blank"; a.rel = "noopener"; head.append(" · ", a); }
+      box.appendChild(head);
+      const grid = el("div", "ev");
+      for (const [list, cls] of [[as, "a"], [bs, "b"]]) {
+        const cell = el("div", cls);
+        for (const i of list) {
+          const q = el("p", null, aText(i));
+          cell.appendChild(q);
+          if (lang === "en" && aText(i) !== P.arguments[i].argument) cell.appendChild(el("p", "ja", P.arguments[i].argument));
+        }
+        grid.appendChild(cell);
+      }
+      box.appendChild(grid); pn.appendChild(box);
+    }
+  } else {
+    const c = sel.c;
+    const bk = el("button", "back", t.back); bk.addEventListener("click", () => select(null)); pn.appendChild(bk);
+    const h = el("h2"); h.append(el("span", "dot a"), " ", cLabel(c.id)); pn.appendChild(h);
+    pn.appendChild(el("div", "path", `${t.top}：${cLabel(c.top)}`));
+    const ps = sorted(vis.filter((p) => p.A === c || p.B === c));
+    pn.appendChild(el("p", "stats", t.cl(c, ps.length, M)));
+    if (farOnly) {
+      const hid = PAIRS.filter((p) => p.tier <= tier && !p.far && (p.A === c || p.B === c)).length;
+      if (hid) pn.appendChild(el("p", "note", t.hidden(hid)));
+    }
+    const ul = el("ul", "rows");
+    for (const p of ps) ul.appendChild(pairRow(p, p.A === c ? p.B : p.A));
+    pn.appendChild(ul);
+    if (cTake(c.id)) pn.appendChild(el("p", "take", cTake(c.id)));
+  }
+  pn.appendChild(footer());
+}
+function footer() {
+  const t = I18N[lang], f = el("footer");
+  f.appendChild(document.createTextNode(t.foot));
+  const a = el("a", null, "nishiohirokazu/team-mirai-2025-embeddings"); a.href = "https://huggingface.co/datasets/nishiohirokazu/team-mirai-2025-embeddings";
+  f.appendChild(a); f.appendChild(document.createTextNode(lang === "en" ? " (CC BY 4.0) · " : "（CC BY 4.0）· "));
+  const s = el("a", null, t.code); s.href = "https://github.com/nishio/broadlistening-visualizations";
+  f.appendChild(s); f.appendChild(document.createTextNode(" · " + t.built(M)));
+  return f;
+}
+
+function applyLang() {
+  const t = I18N[lang];
+  document.documentElement.lang = lang;
+  $("title").textContent = t.title; document.title = t.title; cv.setAttribute("aria-label", t.canvas);
+  $("sub").textContent = t.sub;
+  $("lang").textContent = lang === "ja" ? "EN" : "日本語";
+  updateButtons(); wrapCache.clear(); renderPanel(); requestDraw();
+}
+function updateButtons() {
+  const t = I18N[lang], n1 = PAIRS.filter((p) => p.tier === 1).length;
+  $("tier1").textContent = t.tier1(n1); $("tier2").textContent = t.tier2(PAIRS.length);
+  $("tier1").setAttribute("aria-pressed", tier === 1); $("tier2").setAttribute("aria-pressed", tier === 2);
+  $("far").textContent = t.far(PAIRS.filter((p) => p.tier <= tier && p.far).length); $("far").setAttribute("aria-pressed", farOnly);
+}
+function setTier(v) { tier = v; refresh(); updateButtons(); renderPanel(); requestDraw(); }
+$("tier1").addEventListener("click", () => setTier(1));
+$("tier2").addEventListener("click", () => setTier(2));
+$("far").addEventListener("click", () => { farOnly = !farOnly; refresh(); updateButtons(); renderPanel(); requestDraw(); });
+$("lang").addEventListener("click", () => { lang = lang === "ja" ? "en" : "ja"; applyLang(); });
+
+async function main() {
+  const q = new URLSearchParams(location.search);
+  const [p, l] = await Promise.all([
+    fetch(q.get("data") || "../data/team-mirai-2025/public_result.json").then((r) => { if (!r.ok) throw new Error(r.status + " " + r.url); return r.json(); }),
+    fetch(q.get("links") || "team-mirai-2025.json").then((r) => { if (!r.ok) throw new Error(r.status + " " + r.url); return r.json(); }),
+  ]);
+  P = p; M = l.meta;
+  $("sub").classList.remove("loading");
+  P.arguments.forEach((a, i) => ARG.set(a.arg_id, i));
+  for (const c of P.clusters) CLINFO.set(c.id, c);
+  const miss = l.pairs.some((q) => q.ev.some((e) => e[1].concat(e[2]).some((id) => !ARG.has(id))));
+  if (M.n_arguments !== P.arguments.length || miss) throw new Error(I18N[lang].mismatch);
+  NP = P.arguments.length; PX = new Float32Array(NP); PY = new Float32Array(NP);
+  bounds = { x0: Infinity, x1: -Infinity, y0: Infinity, y1: -Infinity };
+  P.arguments.forEach((a, i) => {
+    PX[i] = a.x; PY[i] = a.y;
+    bounds.x0 = Math.min(bounds.x0, a.x); bounds.x1 = Math.max(bounds.x1, a.x); bounds.y0 = Math.min(bounds.y0, a.y); bounds.y1 = Math.max(bounds.y1, a.y);
+  });
+  for (const c of l.clusters) CL.set(c.id, { ...c, idx: [] });
+  P.arguments.forEach((a, i) => { const c = CL.get(a.cluster_ids[M.level]); if (c) c.idx.push(i); });
+  for (const t of [...l.top].sort((a, b) => b.size - a.size)) TOPS.push(t);
+  PAIRS = l.pairs.map((q) => {
+    const A = CL.get(q.a), B = CL.get(q.b);
+    return { ...q, A, B, far: q.d >= M.far, cross: A.top !== B.top, ev: q.ev.map((e) => [e[0], e[1].map((id) => ARG.get(id)), e[2].map((id) => ARG.get(id))]) };
+  });
+  ready = true;
+  $("bar").hidden = false; $("ctl").hidden = false;
+  $("lang").hidden = !(P.translations && P.translations.en && P.translations.en.clusters);
+  readColors();
+  matchMedia("(prefers-color-scheme: dark)").addEventListener("change", readColors);
+  new ResizeObserver(resize).observe($("mapbox"));
+  resize();
+  // #p=<a>,<b> か #c=<id> で選んだ状態から始める
+  const hm = location.hash.match(/^#p=([^,]+),(.+)$/), hc = location.hash.match(/^#c=(.+)$/);
+  let start = null;
+  if (hm) {
+    const a = decodeURIComponent(hm[1]), b = decodeURIComponent(hm[2]);
+    const pr = PAIRS.find((x) => (x.a === a && x.b === b) || (x.a === b && x.b === a)); // 順番は問わない
+    if (pr) { if (pr.tier > tier) tier = pr.tier; start = { kind: "pair", p: pr }; }
+  } else if (hc && CL.get(decodeURIComponent(hc[1]))) start = { kind: "cluster", c: CL.get(decodeURIComponent(hc[1])) };
+  if (!start && location.hash) history.replaceState(null, "", location.pathname + location.search); // 見つからない組は URL からも消す
+  refresh();
+  applyLang();
+  if (start) select(start, true);
+}
+main().catch((e) => {
+  $("sub").textContent = I18N[lang].fail + (e && e.message || e);
+  $("sub").classList.add("err");
+});
+</script>
+</body>
+</html>

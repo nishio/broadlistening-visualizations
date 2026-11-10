@@ -1,0 +1,1051 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>話題の流れ</title>
+<style>
+:root {
+  --bg: #f6f5f1; --fg: #1d1d1b; --muted: #6b6a64; --line: #d8d6ce; --accent: #2f4f7f;
+  --grid: #e4e2da; --band-a: #e2e0d6; --band-b: #d2cfc3; --bar: #8c897e;
+  --hi: #2a78d6; --hi-fg: #ffffff; --dim: rgba(246,245,241,.62); --tip: #fffefb; --row: #fffdf6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17181a; --fg: #ecebe6; --muted: #a09f98; --line: #34363a; --accent: #8fb0e0;
+    --grid: #26282b; --band-a: #2a2c30; --band-b: #3a3d42; --bar: #64676d;
+    --hi: #3987e5; --hi-fg: #ffffff; --dim: rgba(23,24,26,.62); --tip: #222326; --row: #1f2023;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.55 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+header, .bar, main, footer { max-width: 1100px; margin: 0 auto; padding-left: 16px; padding-right: 16px; }
+header { padding-top: 12px; padding-bottom: 4px; }
+h1 { font-size: 17px; margin: 0 0 2px; }
+h1 a { color: inherit; text-decoration: none; }
+.sub { color: var(--muted); font-size: 12px; }
+.warn { color: var(--fg); font-size: 12px; margin-top: 2px; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding-top: 8px; padding-bottom: 4px; }
+.ctl { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+input[type=date] { font: inherit; font-size: 13px; padding: 3px 4px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); color-scheme: light dark; }
+button { font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; cursor: pointer; }
+button[aria-pressed="true"] { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+button:disabled { opacity: .45; cursor: default; }
+.seg { display: inline-flex; }
+.seg button { border-radius: 0; margin-left: -1px; }
+.seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+.seg button:last-child { border-radius: 0 6px 6px 0; }
+#charts { position: relative; }
+.ch { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 12px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+.ch b { color: var(--fg); font-weight: 600; font-size: 13px; }
+.key { display: inline-flex; align-items: center; gap: 4px; }
+.key i { display: inline-block; width: 9px; height: 11px; border-radius: 2px 2px 0 0; background: var(--bar); }
+.key i.ln { width: 14px; height: 2px; border-radius: 1px; background: var(--fg); }
+.key i.hi { background: var(--hi); }
+.plot { touch-action: pan-y; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.plot svg { display: block; width: 100%; cursor: crosshair; }
+svg text { font-family: inherit; }
+.gl { stroke: var(--grid); stroke-width: 1; shape-rendering: crispEdges; }
+.ax { stroke: var(--line); stroke-width: 1; shape-rendering: crispEdges; }
+.yl, .xl { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.vb { fill: var(--bar); }
+.vb.in { fill: var(--hi); }
+.gline { fill: none; stroke: var(--fg); stroke-width: 1.5; stroke-linejoin: round; stroke-linecap: round; pointer-events: none; }
+.band { stroke: var(--bg); stroke-width: 2; stroke-linejoin: round; }
+.band.a { fill: var(--band-a); }
+.band.b { fill: var(--band-b); }
+.band.hi { fill: var(--hi); }
+.bl { fill: var(--fg); pointer-events: none; dominant-baseline: central; }
+.bl.hi { fill: var(--hi-fg); font-weight: 600; }
+.dim { fill: var(--dim); pointer-events: none; }
+.sbg { fill: var(--hi); opacity: .09; pointer-events: none; }
+.sedge { stroke: var(--hi); stroke-width: 1.5; pointer-events: none; }
+.mk { stroke: var(--fg); stroke-width: 1; opacity: .55; pointer-events: none; shape-rendering: crispEdges; }
+.ml { fill: var(--fg); font-size: 11px; }
+.mlh { fill: transparent; cursor: pointer; }
+.mlg:focus { outline: none; }
+.mlg:focus-visible .mlh, .mlg:hover .mlh { fill: var(--grid); }
+.mlg:hover .ml { text-decoration: underline; }
+.xh { stroke: var(--fg); stroke-width: 1; opacity: .45; pointer-events: none; }
+.tip { position: absolute; z-index: 5; pointer-events: none; display: none; max-width: 280px; padding: 6px 9px; background: var(--tip); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 2px 10px rgba(0,0,0,.14); font-size: 12px; line-height: 1.45; }
+.tip.on { display: block; }
+.tip .v { font-size: 14px; font-weight: 700; }
+.tip .m { color: var(--muted); }
+#cmp { padding-bottom: 8px; }
+#cmp h2 { font-size: 15px; margin: 18px 0 2px; }
+#cmp h3 { font-size: 13px; margin: 16px 0 0; }
+#cmp h4 { font-size: 12px; margin: 8px 0 2px; color: var(--muted); font-weight: 600; }
+.meta { font-size: 12px; color: var(--muted); }
+.lg { display: inline-flex; align-items: center; gap: 4px; margin-right: 12px; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 28px; }
+@media (max-width: 720px) { .cols { grid-template-columns: 1fr; } }
+.row { padding: 5px 8px; margin: 1px -8px; border-radius: 6px; cursor: pointer; }
+.row:hover, .row:focus-visible, .row.open { background: var(--row); outline: 1px solid var(--line); }
+.rlab { font-size: 13px; line-height: 1.4; }
+.rval { display: flex; flex-wrap: wrap; align-items: center; gap: 0 8px; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.rval b { color: var(--fg); font-size: 13px; }
+.rval .dl { color: var(--fg); }
+.db { flex: none; }
+.dbt { stroke: var(--grid); stroke-width: 1; }
+.dbl { stroke: var(--muted); stroke-width: 2; opacity: .55; }
+.dbo { fill: var(--bg); stroke: var(--muted); stroke-width: 1.5; }
+.dbi { fill: var(--hi); stroke: var(--bg); stroke-width: 2; }
+.detail { margin: 2px 0 10px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 6px; }
+.take { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+.mini { display: block; width: 100%; height: 40px; margin: 4px 0; }
+.mini rect { fill: var(--bar); }
+.mini rect.in { fill: var(--hi); }
+.dh { font-size: 12px; color: var(--muted); margin-top: 4px; }
+.args { list-style: none; margin: 4px 0 0; padding: 0; }
+.args li { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.args time { flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; min-width: 6.6em; }
+.args span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.args a, .more { color: var(--accent); font-size: 12px; white-space: nowrap; }
+.more { background: none; border: none; padding: 4px 0; }
+.note { font-size: 12px; color: var(--muted); margin: 10px 0 0; }
+.hint { font-size: 13px; color: var(--muted); padding: 14px 0 4px; }
+details { margin-top: 8px; font-size: 12px; }
+summary { cursor: pointer; color: var(--accent); }
+.tw { overflow: auto; margin-top: 6px; border: 1px solid var(--line); border-radius: 6px; max-height: 420px; }
+table { border-collapse: collapse; font-size: 11px; font-variant-numeric: tabular-nums; }
+th, td { padding: 3px 6px; border-bottom: 1px solid var(--line); text-align: right; white-space: nowrap; font-weight: 400; }
+th:first-child, td:first-child { position: sticky; left: 0; background: var(--bg); text-align: left; white-space: normal; min-width: 11em; max-width: 16em; }
+thead th { position: sticky; top: 0; background: var(--bg); z-index: 1; color: var(--muted); }
+thead th:first-child { z-index: 2; }
+footer { padding-top: 8px; padding-bottom: 24px; color: var(--muted); font-size: 11px; }
+footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="../">←</a> <span id="title">話題の流れ（いつ何が届いたか）</span></h1>
+  <div class="sub" id="sub">読み込み中…</div>
+  <div class="warn" id="warn"></div>
+</header>
+<div class="bar" id="bar" hidden>
+  <span class="ctl"><span id="lPeriod">期間</span>
+    <input type="date" id="from" aria-label="from"> <span>〜</span> <input type="date" id="to" aria-label="to">
+    <button id="clear">解除</button></span>
+  <span class="seg"><button id="bDay" aria-pressed="true">日</button><button id="bWeek" aria-pressed="false">週</button></span>
+  <span class="seg"><button id="mCount" aria-pressed="false">件数</button><button id="mShare" aria-pressed="true">割合</button></span>
+  <button id="lang">EN</button>
+</div>
+<main id="main" hidden>
+  <div id="charts">
+    <div class="ch"><b id="volH"></b><span class="key"><i></i><span id="kArgs"></span></span><span class="key"><i class="ln"></i><span id="kGroups"></span></span></div>
+    <div class="plot"><svg id="vol" role="img"></svg></div>
+    <div class="ch"><b id="stackH"></b><span id="stackHint"></span></div>
+    <div class="plot"><svg id="stack" role="img"></svg></div>
+    <div class="tip" id="tip"></div>
+    <details id="tbl"><summary id="tblS">表で見る</summary><div class="tw" id="tw"></div></details>
+  </div>
+  <section id="cmp"></section>
+</main>
+<footer id="foot"></footer>
+<script>
+"use strict";
+// 話題の流れ：意見の日時の属性で日（または週）に区切り、全体の量と上位のまとまりの積み上げを描く。
+// 期間を選ぶと、その期間とそれ以外で、まとまりごとの割合を比べる。
+// 入力は public_result.json だけ。2 万件の振り分けと比べる計算はブラウザで数ミリ秒なので、事前計算はしない。
+// URL 引数：?data= 入力 / ?time= 日時の属性（省略時は ISO 8601 として読める属性を探す）/ ?tz= 区切りのタイムゾーン（省略時はブラウザ）
+//           ?group= 束ねる属性（省略時は comment_id）/ ?marks=2025-07-03:公示|Campaign+starts,... 縦線 / ?from= ?to= 期間 / ?bin=week / ?mode=count
+const I18N = {
+  ja: {
+    title: "話題の流れ（いつ何が届いたか）", doc: "話題の流れ",
+    sub: (o) => `${o.q ? o.q + "。" : ""}意見 ${o.n} 件を、属性 ${o.time} の日付（${o.tz}。${o.range}）で区切った。上の段は全体の量、下の段は上位 ${o.k} のまとまりの積み上げ。期間をドラッグで選ぶ（スマホは横になぞる）と、その期間とそれ以外を比べて、割合が増えた話題・減った話題を並べる。` + (o.timeless ? `日時のない意見 ${o.timeless} 件は数えていない。` : ""),
+    range: (a, b, n) => `${a}〜${b}、${n} 日`,
+    period: "期間", clear: "解除", day: "日", week: "週", count: "件数", share: "割合",
+    volH: (bin) => bin === "day" ? "全体の量（日ごと）" : "全体の量（週ごと。週は月曜はじまり）",
+    kArgs: "意見の数", kGroups: (g) => `${g} の数（同じ値の意見は 1 つに数える）`,
+    stackH: (k, m) => `上位 ${k} のまとまりの${m === "share" ? "割合" : "件数"}`,
+    stackHint: "帯に触れると強調する。帯の上の文字はまとまりの表札（入らない分は切った）",
+    tipN: (n, p) => `${n} 件 · ${p}`, tipArgs: (n) => `意見 ${n} 件`, tipGroups: (g, n) => `${g} ${n}`, tipTotal: (n) => `全体 ${n} 件`,
+    hint: (m) => "期間をドラッグで選ぶ（スマホは横になぞる）か、上で日付を入れると、その期間とそれ以外を比べる。マウスで 1 回押すとその日（週）だけを選び、スマホで押すと値を見る。" + (m ? "印の名前を押すと、その印から次の印の前日までを選ぶ。" : ""),
+    cmpH: (r, n) => n > 1 ? `${r}の ${n} 日間とそれ以外を比べる` : `${r}とそれ以外を比べる`,
+    cmpMeta: (o) => `この期間：意見 ${o.nIn} 件（全体の ${o.p}）・${o.g} ${o.gIn}。それ以外：意見 ${o.nOut} 件・${o.g} ${o.gOut}`,
+    lgIn: "選んだ期間", lgOut: "それ以外", order: "並びは割合の差（ポイント）の大きい順。行を押すと、その期間の意見の一覧",
+    topH: "上位のまとまり（意見の数の割合で比べる）",
+    lowH: (g) => `下位のまとまり（${g} の数の割合で比べる。同じ ${g} の意見は 1 つに数える）`,
+    up: "割合が増えた", down: "割合が減った", none: "なし",
+    other: "それ以外", nArgs: (n) => `${n} 件`, nLow: (g, ng, n) => `${g} ${ng}・意見 ${n} 件`,
+    moreLow: "さらに 10 件ずつ表示",
+    firstLow: (n) => `この期間に初めて意見が届いた下位のまとまり：${n}`,
+    small: (g, n) => `この期間の ${g} は ${n} しかない。割合の差は少数の投稿で決まる。`,
+    why: "割合が動いた理由（参加者の層が変わったのか、問いかけや聞き手の側が変わったのか）は、この比べ方では分けられない。",
+    all: "全期間を選んでいるので、比べる相手がない。", empty: "この期間に届いた意見はない。",
+    parent: "上位のまとまり", miniL: "このまとまりの意見の数の移り変わり",
+    miniH: (bin) => `このまとまりの意見の数（${bin === "day" ? "日" : "週"}ごと。青い棒が選んだ期間）`,
+    listH: (r, n, g, ng) => `${r}に届いたこのまとまりの意見 ${n} 件（${g} ${ng}）。届いた順`,
+    src: "出典", moreArgs: (n) => `残り ${n} 件を表示`,
+    table: "表で見る（件数・割合）", tTotal: "全体（意見）",
+    noTime: (names) => `日時の属性がない。arguments[].attributes に、ISO 8601 の日時（例 2025-07-19T12:00:00Z）として読める属性が見つからなかった（あった属性：${names || "なし"}）。?time=<属性名> で指定できる。`,
+    badTime: (name) => `属性 ${name} を日時として読めない。ISO 8601（例 2025-07-19T12:00:00Z）の値が要る。`,
+    noAttr: (name, names) => `属性 ${name} が無い（あった属性：${names || "なし"}）。`,
+    badTz: (tz, used) => `タイムゾーン ${tz} を読めないので、${used} で区切った。`,
+    noGroup: (g) => `属性 ${g} が無いので、comment_id で束ねた。`,
+    foot: "出典：チームみらい・しゃべれるマニフェスト参加者 / データセット ", code: "ソースコード",
+    fail: "読み込みに失敗しました: ",
+  },
+  en: {
+    title: "Topic flow (what arrived when)", doc: "Topic flow",
+    sub: (o) => `${o.q ? o.q + ". " : ""}${o.n} opinions, bucketed by the date in attribute ${o.time} (${o.tz}; ${o.range}). Top: overall volume. Bottom: the ${o.k} top-level groups, stacked. Drag across the charts (swipe sideways on a phone) to pick a period; the page compares it with the rest and lists the topics whose share rose or fell.` + (o.timeless ? ` ${o.timeless} opinions without a date are left out.` : ""),
+    range: (a, b, n) => `${a} to ${b}, ${n} days`,
+    period: "Period", clear: "Clear", day: "Day", week: "Week", count: "Count", share: "Share",
+    volH: (bin) => bin === "day" ? "Overall volume (per day)" : "Overall volume (per week, starting Monday)",
+    kArgs: "opinions", kGroups: (g) => `distinct ${g} (opinions with the same value count once)`,
+    stackH: (k, m) => `${m === "share" ? "Share" : "Count"} of the ${k} top-level groups`,
+    stackHint: "Hover or tap a band to highlight it. Band labels are group names, cut where they do not fit.",
+    tipN: (n, p) => `${n} · ${p}`, tipArgs: (n) => `${n} opinions`, tipGroups: (g, n) => `${n} distinct ${g}`, tipTotal: (n) => `${n} in total`,
+    hint: (m) => "Drag across the charts (swipe sideways on a phone) or enter dates above to compare that period with the rest. A single mouse click selects just that day (or week); a tap on a phone shows the values." + (m ? " Click a marker's name to select from it to the day before the next marker." : ""),
+    cmpH: (r, n) => n > 1 ? `${r} (${n} days) vs the rest` : `${r} vs the rest`,
+    cmpMeta: (o) => `This period: ${o.nIn} opinions (${o.p} of all), ${o.gIn} distinct ${o.g}. The rest: ${o.nOut} opinions, ${o.gOut} distinct ${o.g}.`,
+    lgIn: "selected period", lgOut: "the rest", order: "Sorted by the difference in share (points). Click a row to list that period's opinions",
+    topH: "Top-level groups (share of opinions)",
+    lowH: (g) => `Lower-level groups (share of distinct ${g}; opinions with the same ${g} count once)`,
+    up: "Share rose", down: "Share fell", none: "None",
+    other: "rest", nArgs: (n) => `${n} opinions`, nLow: (g, ng, n) => `${ng} ${g}, ${n} opinions`,
+    moreLow: "Show 10 more each",
+    firstLow: (n) => `Lower-level groups whose first opinion arrived in this period: ${n}`,
+    small: (g, n) => `Only ${n} distinct ${g} in this period, so the differences rest on a few submissions.`,
+    why: "Why a share moved (a different mix of participants, or a change in the questions or the interviewer) cannot be told apart by this comparison.",
+    all: "The whole range is selected, so there is nothing to compare it with.", empty: "No opinions arrived in this period.",
+    parent: "Top-level group", miniL: "Opinions in this group over time",
+    miniH: (bin) => `Opinions in this group per ${bin} (blue bars: the selected period)`,
+    listH: (r, n, g, ng) => `${n} opinions in this group from ${r} (${ng} distinct ${g}), in order of arrival`,
+    src: "source", moreArgs: (n) => `Show ${n} more`,
+    table: "Show as a table (counts and shares)", tTotal: "All (opinions)",
+    noTime: (names) => `No date attribute. No attribute in arguments[].attributes reads as an ISO 8601 date (e.g. 2025-07-19T12:00:00Z) (attributes found: ${names || "none"}). Name one with ?time=<attribute>.`,
+    badTime: (name) => `Attribute ${name} does not read as a date. ISO 8601 values (e.g. 2025-07-19T12:00:00Z) are needed.`,
+    noAttr: (name, names) => `No attribute ${name} (attributes found: ${names || "none"}).`,
+    badTz: (tz, used) => `Time zone ${tz} is not recognised; bucketed in ${used} instead.`,
+    noGroup: (g) => `No attribute ${g}; grouped by comment_id instead.`,
+    foot: "Source: Team Mirai and the participants of Shabereru Manifesto / dataset ", code: "source code",
+    fail: "Failed to load: ",
+  },
+};
+const Q = new URLSearchParams(location.search);
+const DAY = 86400000;
+const NS = "http://www.w3.org/2000/svg";
+const FONT = 'system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif';
+// 日付だけ・時刻つき・時差つきの ISO 8601（例 2025-05-15、2025-05-15T13:59:43Z、2025-05-15 22:59+09:00）
+const ISO = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?\s*(Z|[+-]\d{2}(?::?\d{2})?)?)?$/i;
+const WD = { ja: ["日", "月", "火", "水", "木", "金", "土"], en: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] };
+const MON = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const $ = (id) => document.getElementById(id);
+const mod = (a, n) => ((a % n) + n) % n;
+const T = () => I18N[lang];
+
+let P = null, lang = "ja";
+let TZ = "UTC", TIME = null, GROUP = "comment_id", warns = [];
+let R = null;              // 日時の読めた意見（届いた順）
+let d0 = 0, d1 = 0;        // 最初と最後の日（1970-01-01 からの日数。tz で区切った日付）
+let tops = [], lows = [], lowParent = [], FIRST = null, PAIRS = [], GDAYS = [];
+const AGG = {};            // 区切り方（day / week）ごとの集計
+let binKind = "day", mode = "share";
+let sel = null;            // 選んだ期間 { s, e }（日。両端を含む）
+let marks = [];
+let openKey = null, shownArgs = 50, lowLimit = 10;
+let pinK = -1, hovK = -1;  // 強調する帯（一覧から固定したもの / ポインタの下のもの）
+let LAY = null;            // 図の寸法と、あとで書き換える要素
+
+// ---------- 値の読み方 ----------
+const en = () => (P.translations && P.translations.en) || {};
+const cLabel = (c) => (lang === "en" && en().clusters && en().clusters[c.id] && en().clusters[c.id].label) || c.label;
+const cTake = (c) => (lang === "en" && en().clusters && en().clusters[c.id] && en().clusters[c.id].takeaway) || c.takeaway;
+const aText = (a) => (lang === "en" && en().arguments && en().arguments[a.arg_id]) || a.argument;
+const nf = (n) => Math.round(n).toLocaleString(lang === "ja" ? "ja-JP" : "en-US");
+const pct = (x) => { const v = x * 100; return (v >= 1 || v === 0 ? v.toFixed(1) : v.toFixed(2)) + "%"; };
+const pt = (d) => { const v = d * 100, a = Math.abs(v); return (v > 0 ? "+" : v < 0 ? "−" : "±") + (a >= 1 ? a.toFixed(1) : a.toFixed(2)) + "pt"; };
+function attrOf(a, name) {
+  if (name === "comment_id" || name === "arg_id") return a[name];
+  const v = a.attributes ? a.attributes[name] : undefined;
+  if (v != null && v !== "") return v;
+  const pm = P.propertyMap && P.propertyMap[name];
+  return pm ? pm[a.arg_id] : undefined;
+}
+// 時差つきの値は tz の日付・時刻に直す。時差のない値は、書いてある日付・時刻をそのまま使う（どの地方時かは値に無いため）
+function makeParser(tz) {
+  const fmt = new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric" });
+  const cache = new Map();
+  return (raw) => {
+    if (typeof raw !== "string") return null;
+    const s = raw.trim();
+    if (cache.has(s)) return cache.get(s);
+    let v = null;
+    const m = ISO.exec(s);
+    if (m) {
+      const [, Y, Mo, D, h, mi, se, off] = m;
+      const day = Date.UTC(+Y, +Mo - 1, +D) / DAY;
+      if (new Date(day * DAY).getUTCDate() === +D && +Mo >= 1 && +Mo <= 12) {
+        if (off && h != null) {
+          let o = off.toUpperCase();
+          if (o !== "Z") o = o.length === 3 ? o + ":00" : o.includes(":") ? o : o.slice(0, 3) + ":" + o.slice(3);
+          const t = Date.parse(`${Y}-${Mo}-${D}T${h}:${mi}:${se || "00"}${o}`);
+          if (!Number.isNaN(t)) {
+            const p = {};
+            for (const x of fmt.formatToParts(t)) p[x.type] = x.value;
+            v = { day: Date.UTC(+p.year, +p.month - 1, +p.day) / DAY, hm: +p.hour * 60 + +p.minute, t };
+          }
+        } else {
+          const hm = h != null ? +h * 60 + +mi : -1;
+          v = { day, hm, t: day * DAY + Math.max(0, hm) * 60000 };
+        }
+      }
+    }
+    cache.set(s, v);
+    return v;
+  };
+}
+// ?time= が無ければ、値の 8 割以上が ISO 8601 として読める属性のうち、読める値が最も多いものを使う
+function findTime() {
+  const args = P.arguments, names = new Set();
+  for (const a of args) for (const k in a.attributes || {}) names.add(k);
+  for (const k in P.propertyMap || {}) names.add(k);
+  const step = Math.max(1, Math.floor(args.length / 4000));
+  const score = (name) => {
+    let n = 0, hit = 0;
+    for (let i = 0; i < args.length; i += step) {
+      const v = attrOf(args[i], name);
+      if (v == null || v === "") continue;
+      n++; if (typeof v === "string" && ISO.test(v.trim())) hit++;
+    }
+    return { n, hit };
+  };
+  const req = Q.get("time");
+  if (req) { const s = score(req); return { name: req, ok: s.hit > 0, exists: s.n > 0, names: [...names] }; }
+  let best = null;
+  for (const name of names) { const s = score(name); if (s.hit > 0 && s.hit >= 0.8 * s.n && (!best || s.hit > best.hit)) best = { name, ...s }; }
+  return { name: best && best.name, ok: !!best, names: [...names] };
+}
+
+// ---------- 振り分け ----------
+function build() {
+  const args = P.arguments;
+  const levelOf = new Map(P.clusters.map((c) => [c.id, c.level]));
+  const byId = new Map(P.clusters.map((c) => [c.id, c]));
+  const maxLevel = P.clusters.reduce((m, c) => Math.max(m, c.level), 0);
+  tops = P.clusters.filter((c) => c.level === 1).sort((a, b) => b.value - a.value);
+  lows = maxLevel >= 2 ? P.clusters.filter((c) => c.level === maxLevel).sort((a, b) => b.value - a.value) : [];
+  const ti = new Map(tops.map((c, i) => [c.id, i])), li = new Map(lows.map((c, i) => [c.id, i]));
+  lowParent = lows.map((c) => { let x = c; while (x && x.level > 1) x = byId.get(x.parent); return x && ti.has(x.id) ? ti.get(x.id) : -1; });
+  const parse = makeParser(TZ), gi = new Map(), rows = [];
+  let timeless = 0;
+  args.forEach((a, i) => {
+    const v = parse(attrOf(a, TIME));
+    if (!v) { timeless++; return; }
+    let k = -1, l = -1;
+    for (const id of a.cluster_ids || []) {
+      const lv = levelOf.get(id);
+      if (lv === 1) k = ti.get(id); else if (lv === maxLevel && lv >= 2) l = li.get(id);
+    }
+    let g = attrOf(a, GROUP);
+    g = g == null || g === "" ? "\u0000" + a.arg_id : String(g); // 値が無い意見は、それぞれ別に数える
+    let gid = gi.get(g);
+    if (gid === undefined) { gid = gi.size; gi.set(g, gid); }
+    rows.push([i, v.day, v.t, v.hm, k, l, gid]);
+  });
+  rows.sort((p, q) => p[2] - q[2] || p[0] - q[0]);
+  const n = rows.length;
+  R = { n, timeless, nGroups: gi.size, idx: new Int32Array(n), day: new Int32Array(n), t: new Float64Array(n), hm: new Int16Array(n), top: new Int32Array(n), low: new Int32Array(n), grp: new Int32Array(n) };
+  rows.forEach((r, j) => { R.idx[j] = r[0]; R.day[j] = r[1]; R.t[j] = r[2]; R.hm[j] = r[3]; R.top[j] = r[4]; R.low[j] = r[5]; R.grp[j] = r[6]; });
+  if (!n) return;
+  d0 = Infinity; d1 = -Infinity;
+  for (let j = 0; j < n; j++) { if (R.day[j] < d0) d0 = R.day[j]; if (R.day[j] > d1) d1 = R.day[j]; }
+  // 下位のまとまりは束ねる単位で数えるので、（下位, 束ねる単位）の組と、その組が届いた日を持っておく
+  const pairs = new Map(), gdays = new Map();
+  FIRST = new Int32Array(lows.length).fill(2147483647);
+  for (let j = 0; j < n; j++) {
+    const g = R.grp[j], d = R.day[j], l = R.low[j];
+    let gd = gdays.get(g);
+    if (!gd) gdays.set(g, (gd = []));
+    if (!gd.includes(d)) gd.push(d);
+    if (l < 0) continue;
+    if (d < FIRST[l]) FIRST[l] = d;
+    const key = l * R.nGroups + g;
+    let p = pairs.get(key);
+    if (!p) pairs.set(key, (p = { low: l, days: [] }));
+    if (!p.days.includes(d)) p.days.push(d);
+  }
+  PAIRS = [...pairs.values()];
+  GDAYS = [...gdays.values()];
+}
+// 区切り（日、または月曜はじまりの週。端の週はデータのある日だけ）ごとの件数
+function agg(kind) {
+  if (AGG[kind]) return AGG[kind];
+  const bins = [], map = new Int32Array(d1 - d0 + 1);
+  if (kind === "day") for (let d = d0; d <= d1; d++) { map[d - d0] = bins.length; bins.push({ s: d, e: d + 1 }); }
+  else for (let w = d0 - mod(d0 + 3, 7); w <= d1; w += 7) {
+    const s = Math.max(w, d0), e = Math.min(w + 7, d1 + 1);
+    for (let d = s; d < e; d++) map[d - d0] = bins.length;
+    bins.push({ s, e });
+  }
+  const nb = bins.length, K = tops.length;
+  const tot = new Float64Array(nb), grp = new Float64Array(nb), top = new Float64Array(nb * K), seen = new Set();
+  for (let j = 0; j < R.n; j++) {
+    const b = map[R.day[j] - d0];
+    tot[b]++;
+    if (R.top[j] >= 0) top[b * K + R.top[j]]++;
+    const key = b * R.nGroups + R.grp[j];
+    if (!seen.has(key)) { seen.add(key); grp[b]++; }
+  }
+  return (AGG[kind] = { bins, map, tot, grp, top });
+}
+// 期間 [s, e] とそれ以外。上位は意見の数、下位は束ねる単位の数で割合を出す
+function compare(s, e) {
+  const K = tops.length, L = lows.length;
+  const tIn = new Float64Array(K), tOut = new Float64Array(K), lArg = new Float64Array(L);
+  let nIn = 0;
+  for (let j = 0; j < R.n; j++) {
+    const inside = R.day[j] >= s && R.day[j] <= e, k = R.top[j];
+    if (inside) { nIn++; if (k >= 0) tIn[k]++; if (R.low[j] >= 0) lArg[R.low[j]]++; }
+    else if (k >= 0) tOut[k]++;
+  }
+  const lIn = new Float64Array(L), lOut = new Float64Array(L);
+  for (const p of PAIRS) {
+    let i = false, o = false;
+    for (const d of p.days) { if (d >= s && d <= e) i = true; else o = true; }
+    if (i) lIn[p.low]++;
+    if (o) lOut[p.low]++;
+  }
+  let gIn = 0, gOut = 0;
+  for (const days of GDAYS) {
+    let i = false, o = false;
+    for (const d of days) { if (d >= s && d <= e) i = true; else o = true; }
+    gIn += i; gOut += o;
+  }
+  return { nIn, nOut: R.n - nIn, gIn, gOut, tIn, tOut, lIn, lOut, lArg };
+}
+
+// ---------- 日付の書き方 ----------
+function ymd(d) { const t = new Date(d * DAY); return [t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate(), t.getUTCDay()]; }
+const iso = (d) => new Date(d * DAY).toISOString().slice(0, 10);
+// 無い日付（2025-02-30 など）は読まない（Date.UTC は翌月に繰り越すので、書き戻して確かめる）
+const parseDay = (s) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || ""); if (!m) return null; const d = Date.UTC(+m[1], +m[2] - 1, +m[3]) / DAY; return iso(d) === m[0] ? d : null; };
+function fmtDay(d) { const [, m, dd, w] = ymd(d); return lang === "ja" ? `${m}/${dd}（${WD.ja[w]}）` : `${MON[m - 1]} ${dd} (${WD.en[w]})`; }
+function fmtBin(b) { return b.e - b.s === 1 ? fmtDay(b.s) : fmtDay(b.s) + (lang === "ja" ? "〜" : " – ") + fmtDay(b.e - 1); }
+function fmtBinShort(b) {
+  const md = (d) => { const [, m, dd] = ymd(d); return lang === "ja" ? `${m}/${dd}` : `${MON[m - 1]} ${dd}`; };
+  return b.e - b.s === 1 ? md(b.s) : md(b.s) + "–" + md(b.e - 1);
+}
+function fmtRange(s, e) {
+  const [ys, ms, ds, ws] = ymd(s), [ye, me, de, we] = ymd(e);
+  if (lang === "ja") {
+    const a = `${ys}/${ms}/${ds}（${WD.ja[ws]}）`;
+    return s === e ? a : a + "〜" + (ye !== ys ? `${ye}/` : "") + `${me}/${de}（${WD.ja[we]}）`;
+  }
+  const a = `${MON[ms - 1]} ${ds}`, b = `${MON[me - 1]} ${de}`;
+  return s === e ? `${a}, ${ys}` : ys === ye ? `${a} – ${b}, ${ye}` : `${a}, ${ys} – ${b}, ${ye}`;
+}
+function fmtTime(j) {
+  const [, m, dd] = ymd(R.day[j]), hm = R.hm[j];
+  const t = hm >= 0 ? ` ${String(Math.floor(hm / 60)).padStart(2, "0")}:${String(hm % 60).padStart(2, "0")}` : "";
+  return (lang === "ja" ? `${m}/${dd}` : `${MON[m - 1]} ${dd}`) + t;
+}
+
+// ---------- 図 ----------
+function el(tag, attrs, parent, text) {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (text != null) e.textContent = text;
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function div(cls, text) { const d = document.createElement("div"); if (cls) d.className = cls; if (text != null) d.textContent = text; return d; }
+// 0 から max を含むきりのよい目盛り。目盛りの数 lo〜hi のうち、一番上の目盛りが max に最も近いもの
+function niceTicks(max, lo, hi) {
+  let best = null;
+  for (let n = lo; n <= (hi || lo); n++) {
+    const raw = Math.max(max, 1) / n, p = Math.pow(10, Math.floor(Math.log10(raw)));
+    const step = [1, 2, 2.5, 5, 10].map((m) => m * p).find((s) => s >= raw);
+    const out = [];
+    for (let v = 0; v < max + step - 1e-9; v += step) out.push(+v.toFixed(6));
+    if (!best || out[out.length - 1] < best[best.length - 1]) best = out;
+  }
+  return best;
+}
+// 棒は 24px まで。上の角だけ 4px 丸め、根元は四角
+function colPath(x, y, w, base) {
+  const h = base - y;
+  if (h <= 0.2) return "";
+  const r = Math.min(4, w / 2, h);
+  return `M${x},${base}V${y + r}Q${x},${y} ${x + r},${y}H${x + w - r}Q${x + w},${y} ${x + w},${y + r}V${base}Z`;
+}
+const mctx = document.createElement("canvas").getContext("2d");
+function textW(s, px) { mctx.font = `${px}px ${FONT}`; return mctx.measureText(s).width; }
+// 縦軸の目盛りは x = l - 6 に右寄せで置く。左の余白 l は一番長い目盛りの文字に合わせる（狭い画面や大きい件数で左にはみ出さないように）
+function layout(A) {
+  const W = Math.max(280, Math.floor($("charts").clientWidth));
+  const narrow = W < 640, r = 10, share = mode === "share";
+  const yv = niceTicks(Math.max(...A.tot), 2, narrow ? 2 : 3);
+  const ys = share ? (narrow ? [0, 0.5, 1] : [0, 0.25, 0.5, 0.75, 1]) : niceTicks(Math.max(...A.tot), 3, 5);
+  const ysLab = (t) => (share ? Math.round(t * 100) + "%" : nf(t));
+  const labW = Math.max(...yv.map((t) => textW(nf(t), 11)), ...ys.map((t) => textW(ysLab(t), 11)));
+  const l = Math.max(narrow ? 36 : 48, Math.ceil(labW) + 10);
+  return { W, narrow, l, r, pw: W - l - r, vt: 18, vp: narrow ? 76 : 96, st: 6, sp: narrow ? 270 : 340, ax: 22, fs: narrow ? 11 : 12, yv, ys, ysLab };
+}
+const X = (d) => LAY.l + ((d - d0) / (d1 + 1 - d0)) * LAY.pw;
+const dayAtX = (x) => Math.max(d0, Math.min(d1, Math.floor(d0 + ((x - LAY.l) / LAY.pw) * (d1 + 1 - d0))));
+const binAtX = (x) => agg(binKind).map[dayAtX(x) - d0];
+function xTicks() {
+  const pxDay = LAY.pw / (d1 + 1 - d0), need = lang === "en" ? 54 : 44, out = [];
+  const md = (d) => { const [, m, dd] = ymd(d); return lang === "ja" ? `${m}/${dd}` : `${MON[m - 1]} ${dd}`; };
+  if (pxDay >= need) { for (let d = d0; d <= d1; d++) out.push({ d, lab: md(d) }); return out; }
+  for (const k of [7, 14]) if (pxDay * k >= need) {
+    for (let d = d0 + mod(7 - mod(d0 + 3, 7), 7); d <= d1; d += k) out.push({ d, lab: md(d) });
+    return out;
+  }
+  const [y0, m0] = ymd(d0), multiYear = ymd(d1)[0] !== y0;
+  const step = pxDay * 30 >= need ? 1 : pxDay * 91 >= need ? 3 : 12;
+  for (let y = y0, m = m0; ; m++) {
+    if (m > 12) { m = 1; y++; }
+    const d = Date.UTC(y, m - 1, 1) / DAY;
+    if (d > d1) break;
+    if (d >= d0 && (step === 1 || (m - 1) % step === 0)) out.push({ d, lab: step === 12 ? `${y}` : lang === "ja" ? (multiYear ? `${y}/${m}` : `${m}月`) : (multiYear ? `${MON[m - 1]} ${y}` : MON[m - 1]) });
+  }
+  return out;
+}
+function drawCharts() {
+  const A = agg(binKind);
+  LAY = layout(A);
+  const ticks = xTicks();
+  drawVolume(A, ticks);
+  drawStack(A, ticks);
+  drawSel();
+  applyHi();
+  $("vol").setAttribute("aria-label", T().volH(binKind));
+  $("stack").setAttribute("aria-label", T().stackH(tops.length, mode));
+}
+function drawMarks(svg, y1, y2, withLabels) {
+  let lastEnd = -Infinity;
+  marks.forEach((m, i) => {
+    if (m.day < d0 || m.day > d1) return;
+    const x = Math.round(X(m.day)) + 0.5;
+    el("line", { x1: x, x2: x, y1, y2, class: "mk" }, svg);
+    const lab = lang === "en" ? m.en : m.ja;
+    if (!withLabels || !lab) return;
+    const w = textW(lab, 11);
+    let tx = x + 3;
+    if (tx < lastEnd + 6) tx = x - 3 - w;            // 前の印の名前と重なるなら、線の左に置く
+    if (tx + w > LAY.W) tx = x - 3 - w;
+    if (tx < lastEnd + 6) return;                      // それでも重なれば名前は出さない（線は残る）
+    lastEnd = tx + w;
+    const g = el("g", { class: "mlg", tabindex: 0, role: "button", "aria-label": lab }, svg);
+    el("rect", { x: tx - 3, y: 0, width: w + 6, height: LAY.vt - 1, rx: 3, class: "mlh" }, g);
+    el("text", { x: tx, y: LAY.vt - 5, class: "ml" }, g, lab);
+    const go = () => { hideTip(); const next = marks.slice(i + 1).find((n) => n.day > m.day && n.day <= d1); setSel(m.day, next ? next.day - 1 : d1, true); };
+    g.addEventListener("click", go);
+    g.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+    g.addEventListener("pointerdown", (e) => e.stopPropagation());
+  });
+}
+function drawVolume(A, ticks) {
+  const svg = $("vol"), L = LAY;
+  svg.textContent = "";
+  const H = L.vt + L.vp + 3;
+  svg.setAttribute("viewBox", `0 0 ${L.W} ${H}`); svg.setAttribute("height", H);
+  const yt = L.yv, top = yt[yt.length - 1];
+  const Y = (v) => L.vt + L.vp - (v / top) * L.vp;
+  for (const t of ticks) el("line", { x1: Math.round(X(t.d)) + 0.5, x2: Math.round(X(t.d)) + 0.5, y1: L.vt, y2: L.vt + L.vp, class: "gl" }, svg);
+  for (const t of yt) {
+    el("line", { x1: L.l, x2: L.l + L.pw, y1: Math.round(Y(t)) + 0.5, y2: Math.round(Y(t)) + 0.5, class: t ? "gl" : "ax" }, svg);
+    el("text", { x: L.l - 6, y: Y(t), class: "yl", "text-anchor": "end", "dominant-baseline": "central" }, svg, nf(t));
+  }
+  const sbg = el("rect", { class: "sbg", x: 0, y: L.vt, width: 0, height: L.vp }, svg);
+  const bars = A.bins.map((b, i) => {
+    const x0 = X(b.s), x1 = X(b.e), w = Math.max(1, Math.min(24, x1 - x0 - 2)), cx = (x0 + x1) / 2;
+    return el("path", { d: colPath(cx - w / 2, Y(A.tot[i]), w, Y(0)), class: "vb" }, svg);
+  });
+  el("polyline", { points: A.bins.map((b, i) => `${((X(b.s) + X(b.e)) / 2).toFixed(1)},${Y(A.grp[i]).toFixed(1)}`).join(" "), class: "gline" }, svg);
+  drawMarks(svg, L.vt, L.vt + L.vp, true);
+  const edges = [0, 1].map(() => el("line", { class: "sedge", y1: L.vt, y2: L.vt + L.vp, visibility: "hidden" }, svg));
+  const xh = el("line", { class: "xh", y1: L.vt, y2: L.vt + L.vp, visibility: "hidden" }, svg);
+  LAY.vol = { svg, bars, sbg, edges, xh };
+}
+function drawStack(A, ticks) {
+  const svg = $("stack"), L = LAY;
+  svg.textContent = "";
+  const H = L.st + L.sp + L.ax;
+  svg.setAttribute("viewBox", `0 0 ${L.W} ${H}`); svg.setAttribute("height", H);
+  const K = tops.length, nb = A.bins.length, share = mode === "share";
+  const yt = L.ys;
+  const smax = yt[yt.length - 1];
+  const Y = (v) => L.st + L.sp - (v / smax) * L.sp;
+  // 点は左端・各区切りの中央・右端。帯 k の下端は cum[k]、上端は cum[k+1]
+  const xs = [X(d0)], src = [0];
+  A.bins.forEach((b, i) => { xs.push((X(b.s) + X(b.e)) / 2); src.push(i); });
+  xs.push(X(d1 + 1)); src.push(nb - 1);
+  const np = xs.length, S = K + 1, cum = new Float64Array(np * S);
+  for (let j = 0; j < np; j++) {
+    const b = src[j], den = share ? A.tot[b] || 1 : 1;
+    let acc = 0;
+    for (let k = 0; k < K; k++) { cum[j * S + k] = acc; acc += A.top[b * K + k] / den; }
+    cum[j * S + K] = acc;
+  }
+  const bands = [];
+  for (let k = 0; k < K; k++) {
+    let d = "";
+    for (let j = 0; j < np; j++) d += (j ? "L" : "M") + xs[j].toFixed(1) + "," + Y(cum[j * S + k + 1]).toFixed(1);
+    for (let j = np - 1; j >= 0; j--) d += "L" + xs[j].toFixed(1) + "," + Y(cum[j * S + k]).toFixed(1);
+    bands.push(el("path", { d: d + "Z", class: "band " + (k % 2 ? "b" : "a") }, svg));
+  }
+  for (const t of yt) el("text", { x: L.l - 6, y: Y(t), class: "yl", "text-anchor": "end", "dominant-baseline": "central" }, svg, L.ysLab(t));
+  // 期間の外は薄くする。表札は薄くした上に書く（どの帯か読めるように）
+  const dims = [0, 1].map(() => el("rect", { class: "dim", x: 0, y: L.st - 1, width: 0, height: L.sp + 2 }, svg));
+  drawMarks(svg, L.st, L.st + L.sp, false);
+  const edges = [0, 1].map(() => el("line", { class: "sedge", y1: L.st, y2: L.st + L.sp, visibility: "hidden" }, svg));
+  const labels = new Array(K).fill(null);
+  for (const p of placeLabels(xs, cum, S, K, Y, L.fs)) {
+    labels[p.k] = el("text", { x: p.x.toFixed(1), y: p.y.toFixed(1), class: "bl", "font-size": L.fs }, svg, p.text);
+  }
+  el("line", { x1: L.l, x2: L.l + L.pw, y1: L.st + L.sp + 0.5, y2: L.st + L.sp + 0.5, class: "ax" }, svg);
+  for (const t of ticks) {
+    const x = Math.round(X(t.d)) + 0.5;
+    el("line", { x1: x, x2: x, y1: L.st + L.sp, y2: L.st + L.sp + 4, class: "ax" }, svg);
+    const half = textW(t.lab, 11) / 2;
+    el("text", { x, y: L.st + L.sp + 16, class: "xl", "text-anchor": x - half < 0 ? "start" : x + half > L.W ? "end" : "middle" }, svg, t.lab);
+  }
+  const xh = el("line", { class: "xh", y1: L.st, y2: L.st + L.sp, visibility: "hidden" }, svg);
+  LAY.stk = { svg, bands, labels, dims, edges, xh, xs, cum, S, Y, smax };
+}
+// 帯の上に表札を置く。3px おきに帯の上端・下端を測り、文字の幅の窓で「帯の高さの最小」が最も大きい所に置く。
+// 全文が入らなければ、入るところまで切って「…」をつける（4 文字も入らない帯には置かない）
+function placeLabels(xs, cum, S, K, Y, fs) {
+  const step = 3, x0 = LAY.l + 2, ns = Math.floor((LAY.pw - 4) / step) + 1;
+  const seg = new Int32Array(ns), tt = new Float64Array(ns);
+  for (let i = 0, j = 0; i < ns; i++) {
+    const x = x0 + i * step;
+    while (j < xs.length - 2 && xs[j + 1] < x) j++;
+    const w = xs[j + 1] - xs[j];
+    seg[i] = j; tt[i] = w > 0 ? Math.min(1, Math.max(0, (x - xs[j]) / w)) : 0;
+  }
+  const need = fs + 2, pad = 8, out = [];
+  const qa = new Int32Array(ns), qb = new Int32Array(ns);
+  const top = new Float64Array(ns), bot = new Float64Array(ns);
+  function best(n) { // 幅 n 点の窓のうち、(下端の最小 − 上端の最大) が最も大きいもの
+    if (n > ns) return null;
+    let ha = 0, ta = 0, hb = 0, tb = 0, r = null;
+    for (let i = 0; i < ns; i++) {
+      while (ta > ha && top[qa[ta - 1]] <= top[i]) ta--;
+      qa[ta++] = i;
+      while (tb > hb && bot[qb[tb - 1]] >= bot[i]) tb--;
+      qb[tb++] = i;
+      const s = i - n + 1;
+      if (qa[ha] < s) ha++;
+      if (qb[hb] < s) hb++;
+      if (s >= 0) { const c = bot[qb[hb]] - top[qa[ha]]; if (!r || c > r.c) r = { c, i: s, top: top[qa[ha]], bot: bot[qb[hb]] }; }
+    }
+    return r;
+  }
+  for (let k = 0; k < K; k++) {
+    for (let i = 0; i < ns; i++) {
+      const a = seg[i], t = tt[i];
+      top[i] = Y(cum[a * S + k + 1] * (1 - t) + cum[(a + 1) * S + k + 1] * t) + 1;
+      bot[i] = Y(cum[a * S + k] * (1 - t) + cum[(a + 1) * S + k] * t) - 1;
+    }
+    const text = cLabel(tops[k]), chars = [...text];
+    const tryText = (s) => { const w = textW(s, fs) + pad, r = best(Math.ceil(w / step) + 1); return r && r.c >= need ? { s, w, r } : null; };
+    let fit = tryText(text);
+    if (!fit) {
+      let lo = 4, hi = chars.length - 1;
+      while (lo <= hi) { const m = (lo + hi) >> 1, f = tryText(chars.slice(0, m).join("") + "…"); if (f) { fit = f; lo = m + 1; } else hi = m - 1; }
+    }
+    if (fit) out.push({ k, text: fit.s, x: x0 + fit.r.i * step + pad / 2, y: (fit.r.top + fit.r.bot) / 2 });
+  }
+  return out;
+}
+function drawSel() {
+  if (!LAY) return;
+  const A = agg(binKind), v = LAY.vol, s = LAY.stk, on = !!sel;
+  const xa = on ? X(sel.s) : 0, xb = on ? X(sel.e + 1) : 0;
+  A.bins.forEach((b, i) => v.bars[i].classList.toggle("in", on && b.s <= sel.e && b.e - 1 >= sel.s));
+  v.sbg.setAttribute("x", xa); v.sbg.setAttribute("width", on ? xb - xa : 0);
+  s.dims[0].setAttribute("x", LAY.l); s.dims[0].setAttribute("width", on ? Math.max(0, xa - LAY.l) : 0);
+  s.dims[1].setAttribute("x", xb); s.dims[1].setAttribute("width", on ? Math.max(0, LAY.l + LAY.pw - xb) : 0);
+  [v.edges, s.edges].forEach((pair) => [xa, xb].forEach((x, i) => {
+    pair[i].setAttribute("x1", x); pair[i].setAttribute("x2", x); pair[i].setAttribute("visibility", on ? "visible" : "hidden");
+  }));
+}
+function applyHi() {
+  if (!LAY) return;
+  const k = hovK >= 0 ? hovK : pinK;
+  LAY.stk.bands.forEach((b, i) => b.setAttribute("class", "band " + (i === k ? "hi" : i % 2 ? "b" : "a")));
+  LAY.stk.labels.forEach((t, i) => { if (t) t.setAttribute("class", i === k ? "bl hi" : "bl"); });
+}
+function setHover(k) { if (k !== hovK) { hovK = k; applyHi(); } }
+// ポインタの x での帯 k の上下端（区切りの中央どうしを直線でつないだもの）から、y の下にある帯を探す
+function bandAt(x, y) {
+  const { xs, cum, S, Y, smax } = LAY.stk, K = tops.length;
+  let j = 0;
+  while (j < xs.length - 2 && xs[j + 1] < x) j++;
+  const w = xs[j + 1] - xs[j], t = w > 0 ? Math.min(1, Math.max(0, (x - xs[j]) / w)) : 0;
+  const v = ((LAY.st + LAY.sp - y) / LAY.sp) * smax;
+  for (let k = 0; k < K; k++) {
+    const lo = cum[j * S + k] * (1 - t) + cum[(j + 1) * S + k] * t, hi = cum[j * S + k + 1] * (1 - t) + cum[(j + 1) * S + k + 1] * t;
+    if (v >= lo && v < hi) return k;
+  }
+  return -1;
+}
+function showTip(svg, x, y, lines) {
+  const tip = $("tip"), wrap = $("charts").getBoundingClientRect(), r = svg.getBoundingClientRect();
+  tip.textContent = "";
+  for (const [cls, text] of lines) tip.appendChild(div(cls, text));
+  tip.classList.add("on");
+  const px = r.left - wrap.left + x, py = r.top - wrap.top + y, tw = tip.offsetWidth, th = tip.offsetHeight;
+  let left = px + 14;
+  if (left + tw > wrap.width) left = px - 14 - tw;
+  tip.style.left = Math.max(0, left) + "px";
+  tip.style.top = Math.max(0, py - th - 10) + "px";
+}
+function hideTip() {
+  $("tip").classList.remove("on");
+  if (LAY) [LAY.vol.xh, LAY.stk.xh].forEach((l) => l.setAttribute("visibility", "hidden"));
+  setHover(-1);
+}
+function inspect(which, svg, x, y) {
+  const A = agg(binKind), b = binAtX(x), bin = A.bins[b], cx = (X(bin.s) + X(bin.e)) / 2;
+  [LAY.vol.xh, LAY.stk.xh].forEach((l) => { l.setAttribute("x1", cx); l.setAttribute("x2", cx); l.setAttribute("visibility", "visible"); });
+  const t = T();
+  if (which === "stack") {
+    const k = bandAt(x, y);
+    setHover(k);
+    if (k < 0) { showTip(svg, x, y, [["m", fmtBin(bin)], ["v", t.tipArgs(nf(A.tot[b]))]]); return; }
+    const n = A.top[b * tops.length + k];
+    showTip(svg, x, y, [["m", fmtBin(bin)], ["v", t.tipN(nf(n), pct(A.tot[b] ? n / A.tot[b] : 0))], ["", cLabel(tops[k])], ["m", t.tipTotal(nf(A.tot[b]))]]);
+  } else {
+    setHover(-1);
+    showTip(svg, x, y, [["m", fmtBin(bin)], ["v", t.tipArgs(nf(A.tot[b]))], ["", t.tipGroups(GROUP, nf(A.grp[b]))]]);
+  }
+}
+
+// ---------- 期間を選ぶ ----------
+// ドラッグで新しく選ぶ。今の期間の端の近くから始めたら、その端を動かす。マウスの 1 回押しはその日（週）を選ぶ。
+// タッチの 1 回押しは値を見るだけ（帯の強調と吹き出し）。縦に動かすとページのスクロールになる（touch-action: pan-y）
+let drag = null, liveTimer = 0;
+function setSel(s, e, commit) {
+  if (s == null || e == null) sel = null;
+  else { s = Math.max(d0, Math.min(d1, s)); e = Math.max(d0, Math.min(d1, e)); sel = s <= e ? { s, e } : { s: e, e: s }; }
+  drawSel();
+  $("from").value = sel ? iso(sel.s) : ""; $("to").value = sel ? iso(sel.e) : "";
+  $("clear").disabled = !sel;
+  if (commit) { renderCompare(); syncURL(); }
+  else if (!liveTimer) liveTimer = requestAnimationFrame(() => { liveTimer = 0; renderCompare(); });
+}
+function pointerX(e) { const r = e.currentTarget.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+function onDown(e) {
+  if (e.pointerType === "mouse" && e.button !== 0) return;
+  const [x] = pointerX(e);
+  if (x < LAY.l - 6 || x > LAY.l + LAY.pw + 6) return;
+  const tol = e.pointerType === "mouse" ? 7 : 16;
+  let anchor = null;
+  if (sel) {
+    if (Math.abs(x - X(sel.s)) <= tol) anchor = sel.e;
+    else if (Math.abs(x - X(sel.e + 1)) <= tol) anchor = sel.s;
+  }
+  drag = { id: e.pointerId, x0: x, moved: false, anchor, bin: binAtX(x), prev: sel, mouse: e.pointerType === "mouse" };
+  e.currentTarget.setPointerCapture(e.pointerId);
+}
+function onMove(e) {
+  const svg = e.currentTarget, [x, y] = pointerX(e), which = svg.id === "stack" ? "stack" : "vol";
+  if (drag && drag.id === e.pointerId) {
+    if (!drag.moved && Math.abs(x - drag.x0) < 5) return;
+    if (!drag.moved) { drag.moved = true; hideTip(); }
+    const A = agg(binKind), b = A.bins[binAtX(x)];
+    if (drag.anchor != null) {
+      if (b.s <= drag.anchor) setSel(b.s, drag.anchor); else setSel(drag.anchor, b.e - 1);
+    } else {
+      const a = A.bins[drag.bin];
+      setSel(Math.min(a.s, b.s), Math.max(a.e, b.e) - 1);
+    }
+    return;
+  }
+  if (e.pointerType === "mouse") {
+    if (x < LAY.l || x > LAY.l + LAY.pw) { hideTip(); return; }
+    inspect(which, svg, x, y);
+  }
+}
+function onUp(e) {
+  if (!drag || drag.id !== e.pointerId) return;
+  const svg = e.currentTarget, [x, y] = pointerX(e), which = svg.id === "stack" ? "stack" : "vol";
+  const d = drag; drag = null;
+  if (d.moved) { setSel(sel && sel.s, sel && sel.e, true); return; }
+  if (d.mouse) { const b = agg(binKind).bins[binAtX(x)]; setSel(b.s, b.e - 1, true); }
+  inspect(which, svg, Math.max(LAY.l, Math.min(LAY.l + LAY.pw, x)), y);
+}
+function onCancel(e) {
+  if (!drag || drag.id !== e.pointerId) return;
+  const prev = drag.prev; drag = null;
+  setSel(prev && prev.s, prev && prev.e, true);
+  hideTip();
+}
+function syncURL() {
+  const u = new URL(location.href);
+  if (sel) { u.searchParams.set("from", iso(sel.s)); u.searchParams.set("to", iso(sel.e)); }
+  else { u.searchParams.delete("from"); u.searchParams.delete("to"); }
+  if (binKind === defaultBin()) u.searchParams.delete("bin"); else u.searchParams.set("bin", binKind);
+  if (mode === "share") u.searchParams.delete("mode"); else u.searchParams.set("mode", mode);
+  history.replaceState(null, "", u);
+}
+// 4 週より長ければ週ごとを既定にする（日ごとの割合は、意見の少ない日に大きく揺れて帯が読みにくい）
+const defaultBin = () => (d1 - d0 + 1 > 28 ? "week" : "day");
+
+// ---------- 比べた結果 ----------
+function dumbbell(pi, po, max) {
+  const W = 110, H = 14, x = (v) => 5 + (max > 0 ? v / max : 0) * (W - 10);
+  const s = el("svg", { width: W, height: H, viewBox: `0 0 ${W} ${H}`, class: "db", "aria-hidden": "true" });
+  el("line", { x1: 5, x2: W - 5, y1: H / 2, y2: H / 2, class: "dbt" }, s);
+  el("line", { x1: x(po), x2: x(pi), y1: H / 2, y2: H / 2, class: "dbl" }, s);
+  el("circle", { cx: x(po), cy: H / 2, r: 3.5, class: "dbo" }, s);
+  el("circle", { cx: x(pi), cy: H / 2, r: 4.5, class: "dbi" }, s);
+  return s;
+}
+function legendDot(cls) {
+  const s = el("svg", { width: 12, height: 12, viewBox: "0 0 12 12", "aria-hidden": "true" });
+  el("circle", { cx: 6, cy: 6, r: cls === "dbi" ? 4.5 : 3.5, class: cls }, s);
+  return s;
+}
+function rowEl(kind, i, r, max) {
+  const t = T(), key = kind + ":" + i, c = kind === "t" ? tops[i] : lows[i], band = kind === "t" ? i : lowParent[i];
+  const wrap = div(null);
+  const row = div("row" + (openKey === key ? " open" : ""));
+  row.tabIndex = 0; row.setAttribute("role", "button"); row.setAttribute("aria-expanded", String(openKey === key));
+  row.appendChild(div("rlab", cLabel(c)));
+  const val = div("rval");
+  val.appendChild(dumbbell(r.pi, r.po, max));
+  const b = document.createElement("b"); b.textContent = pct(r.pi); val.appendChild(b);
+  const o = document.createElement("span"); o.textContent = `${t.other} ${pct(r.po)}`; val.appendChild(o);
+  const dl = document.createElement("span"); dl.className = "dl"; dl.textContent = pt(r.d); val.appendChild(dl);
+  const n = document.createElement("span"); n.textContent = r.note; val.appendChild(n);
+  row.appendChild(val);
+  const toggle = () => {
+    openKey = openKey === key ? null : key; shownArgs = 50;
+    pinK = openKey ? band : -1; applyHi();
+    renderCompare();
+    const again = document.querySelector(`[data-key="${key}"]`);
+    if (again) again.scrollIntoView({ block: "nearest" });
+  };
+  row.addEventListener("click", toggle);
+  row.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); } });
+  row.addEventListener("mouseenter", () => { if (!drag) setHover(band); });
+  row.addEventListener("mouseleave", () => setHover(-1));
+  wrap.dataset.key = key;
+  wrap.appendChild(row);
+  if (openKey === key) wrap.appendChild(detailEl(kind, i));
+  return wrap;
+}
+function miniChart(kind, i) {
+  const A = agg(binKind), nb = A.bins.length, cnt = new Float64Array(nb), arr = kind === "t" ? R.top : R.low;
+  for (let j = 0; j < R.n; j++) if (arr[j] === i) cnt[A.map[R.day[j] - d0]]++;
+  const W = 600, H = 40, max = Math.max(1, ...cnt), span = d1 + 1 - d0;
+  const s = el("svg", { class: "mini", viewBox: `0 0 ${W} ${H}`, preserveAspectRatio: "none", role: "img", "aria-label": T().miniL });
+  A.bins.forEach((b, k) => {
+    const x0 = ((b.s - d0) / span) * W, x1 = ((b.e - d0) / span) * W, h = (cnt[k] / max) * (H - 2);
+    const r = el("rect", { x: x0 + 0.5, y: H - h, width: Math.max(0.5, x1 - x0 - 1), height: h, class: sel && b.s <= sel.e && b.e - 1 >= sel.s ? "in" : "" }, s);
+    el("title", {}, r, `${fmtBin(b)}  ${T().nArgs(nf(cnt[k]))}`);
+  });
+  return s;
+}
+function detailEl(kind, i) {
+  const t = T(), c = kind === "t" ? tops[i] : lows[i], box = div("detail");
+  if (kind === "l" && lowParent[i] >= 0) box.appendChild(div("take", `${t.parent}：${cLabel(tops[lowParent[i]])}`));
+  if (cTake(c)) box.appendChild(div("take", cTake(c)));
+  box.appendChild(div("dh", t.miniH(binKind)));
+  box.appendChild(miniChart(kind, i));
+  const arr = kind === "t" ? R.top : R.low, list = [];
+  for (let j = 0; j < R.n; j++) if (arr[j] === i && R.day[j] >= sel.s && R.day[j] <= sel.e) list.push(j);
+  const ng = new Set(list.map((j) => R.grp[j])).size;
+  box.appendChild(div("dh", t.listH(fmtRange(sel.s, sel.e), nf(list.length), GROUP, nf(ng))));
+  const ul = document.createElement("ul"); ul.className = "args";
+  const showLink = !(P.config && P.config.enable_source_link === false);
+  for (const j of list.slice(0, shownArgs)) {
+    const a = P.arguments[R.idx[j]], li = document.createElement("li");
+    const tm = document.createElement("time"); tm.textContent = fmtTime(j); li.appendChild(tm);
+    const sp = document.createElement("span"); sp.textContent = aText(a); li.appendChild(sp);
+    if (a.url && showLink) { const l = document.createElement("a"); l.href = a.url; l.target = "_blank"; l.rel = "noopener"; l.textContent = t.src; li.appendChild(l); }
+    ul.appendChild(li);
+  }
+  box.appendChild(ul);
+  if (list.length > shownArgs) {
+    const m = document.createElement("button"); m.className = "more"; m.textContent = t.moreArgs(nf(list.length - shownArgs));
+    m.addEventListener("click", (e) => { e.stopPropagation(); shownArgs += 200; renderCompare(); });
+    box.appendChild(m);
+  }
+  return box;
+}
+// 増えた・減ったの 2 列。点の目盛りは、並べた行の割合の最大を右端にする（上位と下位で別）
+function listCols(kind, rows, limit) {
+  const t = T(), cols = div("cols");
+  const ups = rows.filter((r) => r.d > 0).sort((a, b) => b.d - a.d), downs = rows.filter((r) => r.d < 0).sort((a, b) => a.d - b.d);
+  const max = Math.max(1e-9, ...ups.slice(0, limit).concat(downs.slice(0, limit)).map((r) => Math.max(r.pi, r.po)));
+  for (const [title, list] of [[t.up, ups], [t.down, downs]]) {
+    const col = div(null), h = document.createElement("h4"); h.textContent = title; col.appendChild(h);
+    if (!list.length) col.appendChild(div("meta", t.none));
+    for (const r of list.slice(0, limit)) col.appendChild(rowEl(kind, r.i, r, max));
+    cols.appendChild(col);
+  }
+  return { cols, more: Math.max(ups.length, downs.length) > limit };
+}
+function renderCompare() {
+  const box = $("cmp"), t = T();
+  box.textContent = "";
+  if (!sel) { box.appendChild(div("hint", t.hint(marks.some((m) => m.day >= d0 && m.day <= d1)))); return; }
+  const C = compare(sel.s, sel.e);
+  const h = document.createElement("h2"); h.textContent = t.cmpH(fmtRange(sel.s, sel.e), sel.e - sel.s + 1); box.appendChild(h);
+  box.appendChild(div("meta", t.cmpMeta({ nIn: nf(C.nIn), p: pct(C.nIn / R.n), g: GROUP, gIn: nf(C.gIn), nOut: nf(C.nOut), gOut: nf(C.gOut) })));
+  if (!C.nIn) { box.appendChild(div("hint", t.empty)); return; }
+  if (!C.nOut) { box.appendChild(div("hint", t.all)); return; }
+  const lg = div("meta");
+  for (const [cls, text] of [["dbi", t.lgIn], ["dbo", t.lgOut]]) { const s = document.createElement("span"); s.className = "lg"; s.appendChild(legendDot(cls)); s.appendChild(document.createTextNode(text)); lg.appendChild(s); }
+  lg.appendChild(document.createTextNode(t.order));
+  box.appendChild(lg);
+  if (C.gIn < 30) box.appendChild(div("note", t.small(GROUP, nf(C.gIn))));
+  // 上位：意見の数の割合
+  const topRows = tops.map((c, i) => ({ i, pi: C.tIn[i] / C.nIn, po: C.tOut[i] / C.nOut, note: t.nArgs(nf(C.tIn[i])) }));
+  topRows.forEach((r) => { r.d = r.pi - r.po; });
+  const h3 = document.createElement("h3"); h3.textContent = t.topH; box.appendChild(h3);
+  box.appendChild(listCols("t", topRows, tops.length).cols);
+  if (lows.length) {
+    // 下位：束ねる単位の数の割合（少数の投稿が同じ下位に意見を並べても 1 つに数える）
+    const lowRows = lows.map((c, i) => ({ i, pi: C.lIn[i] / C.gIn, po: C.gOut ? C.lOut[i] / C.gOut : 0, note: t.nLow(GROUP, nf(C.lIn[i]), nf(C.lArg[i])) }));
+    lowRows.forEach((r) => { r.d = r.pi - r.po; });
+    const h = document.createElement("h3"); h.textContent = t.lowH(GROUP); box.appendChild(h);
+    const { cols, more } = listCols("l", lowRows, lowLimit);
+    box.appendChild(cols);
+    if (more) {
+      const m = document.createElement("button"); m.className = "more"; m.textContent = t.moreLow;
+      m.addEventListener("click", () => { lowLimit += 10; renderCompare(); });
+      box.appendChild(m);
+    }
+    if (sel.s > d0) {
+      const born = lows.map((c, i) => i).filter((i) => FIRST[i] >= sel.s && FIRST[i] <= sel.e);
+      const p = div("note", t.firstLow(nf(born.length)) + (born.length ? (lang === "ja" ? "（" : " (") + born.slice(0, 8).map((i) => cLabel(lows[i])).join(lang === "ja" ? "・" : "; ") + (born.length > 8 ? "…" : "") + (lang === "ja" ? "）" : ")") : ""));
+      box.appendChild(p);
+    }
+  }
+  box.appendChild(div("note", t.why));
+}
+
+// ---------- 表 ----------
+function renderTable() {
+  const tw = $("tw");
+  if (!$("tbl").open) { tw.textContent = ""; return; }
+  const A = agg(binKind), share = mode === "share", t = T();
+  const table = document.createElement("table"), thead = document.createElement("thead"), hr = document.createElement("tr");
+  hr.appendChild(document.createElement("th"));
+  for (const b of A.bins) { const th = document.createElement("th"); th.textContent = fmtBinShort(b); hr.appendChild(th); }
+  thead.appendChild(hr); table.appendChild(thead);
+  const tb = document.createElement("tbody");
+  const addRow = (name, f) => {
+    const tr = document.createElement("tr"), th = document.createElement("td"); th.textContent = name; tr.appendChild(th);
+    A.bins.forEach((b, i) => { const td = document.createElement("td"); td.textContent = f(i); tr.appendChild(td); });
+    tb.appendChild(tr);
+  };
+  addRow(t.tTotal, (i) => nf(A.tot[i]));
+  addRow(GROUP, (i) => nf(A.grp[i]));
+  tops.forEach((c, k) => addRow(cLabel(c), (i) => { const n = A.top[i * tops.length + k]; return share ? (A.tot[i] ? pct(n / A.tot[i]) : "") : nf(n); }));
+  table.appendChild(tb);
+  tw.textContent = ""; tw.appendChild(table);
+}
+
+// ---------- 言語・つなぎ ----------
+function applyLang() {
+  const t = T();
+  document.documentElement.lang = lang;
+  document.title = t.doc; $("title").textContent = t.title;
+  $("lang").textContent = lang === "ja" ? "EN" : "日本語";
+  $("lPeriod").textContent = t.period; $("clear").textContent = t.clear;
+  $("bDay").textContent = t.day; $("bWeek").textContent = t.week; $("mCount").textContent = t.count; $("mShare").textContent = t.share;
+  const q = lang === "en" ? en().question : P.config && P.config.question;
+  $("sub").textContent = t.sub({ q, n: nf(R.n), time: TIME, tz: TZ, range: t.range(iso(d0), iso(d1), nf(d1 - d0 + 1)), k: tops.length, timeless: R.timeless ? nf(R.timeless) : 0 });
+  $("warn").textContent = warns.map((w) => "⚠ " + w()).join(" ");
+  $("kArgs").textContent = t.kArgs; $("kGroups").textContent = t.kGroups(GROUP);
+  $("stackHint").textContent = t.stackHint; $("tblS").textContent = t.table;
+  updateHeads();
+  footer();
+  drawCharts(); renderCompare(); renderTable();
+}
+function updateHeads() {
+  $("volH").textContent = T().volH(binKind); $("stackH").textContent = T().stackH(tops.length, mode);
+  $("bDay").setAttribute("aria-pressed", binKind === "day"); $("bWeek").setAttribute("aria-pressed", binKind === "week");
+  $("mCount").setAttribute("aria-pressed", mode === "count"); $("mShare").setAttribute("aria-pressed", mode === "share");
+}
+function footer() {
+  const t = T(), f = $("foot");
+  f.textContent = ""; f.appendChild(document.createTextNode(t.foot));
+  const a = document.createElement("a"); a.href = "https://huggingface.co/datasets/nishiohirokazu/team-mirai-2025-embeddings";
+  a.textContent = "nishiohirokazu/team-mirai-2025-embeddings"; f.appendChild(a);
+  f.appendChild(document.createTextNode(" (CC BY 4.0) · "));
+  const s = document.createElement("a"); s.href = "https://github.com/nishio/broadlistening-visualizations/blob/main/docs/timeline/index.html";
+  s.textContent = t.code; f.appendChild(s);
+}
+function stop(msg) { $("sub").textContent = msg; footer(); }
+
+async function main() {
+  const src = Q.get("data") || "../data/team-mirai-2025/public_result.json";
+  const res = await fetch(src);
+  if (!res.ok) throw new Error(`${src}: HTTP ${res.status}`);
+  P = await res.json();
+  if (!(P.translations && P.translations.en && (P.translations.en.clusters || P.translations.en.arguments))) $("lang").style.display = "none";
+  TZ = Q.get("tz") || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  try { new Intl.DateTimeFormat("en-US", { timeZone: TZ }); }
+  catch (e) { const bad = TZ; TZ = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC"; warns.push(() => T().badTz(bad, TZ)); }
+  const g = Q.get("group");
+  if (g && g !== "comment_id") {
+    if (g === "arg_id" || P.arguments.some((a) => attrOf(a, g) != null)) GROUP = g;
+    else warns.push(() => T().noGroup(g));
+  }
+  const ft = findTime();
+  if (!ft.ok) { stop(!ft.name ? T().noTime(ft.names.join(", ")) : ft.exists ? T().badTime(ft.name) : T().noAttr(ft.name, ft.names.join(", "))); return; }
+  TIME = ft.name;
+  marks = (Q.get("marks") || "").split(",").map((p) => {
+    const m = /^\s*(\d{4}-\d{2}-\d{2})(?::(.*))?$/.exec(p), day = m && parseDay(m[1]);
+    if (day == null) return null;
+    const [ja, enl] = (m[2] || "").split("|");
+    return { day, ja: (ja || "").trim(), en: (enl || ja || "").trim() };
+  }).filter(Boolean).sort((a, b) => a.day - b.day);
+  build();
+  if (!R.n) { stop(T().badTime(TIME)); return; }
+  binKind = Q.get("bin") === "week" || Q.get("bin") === "day" ? Q.get("bin") : defaultBin();
+  mode = Q.get("mode") === "count" ? "count" : "share";
+  $("bar").hidden = false; $("main").hidden = false;
+  for (const id of ["from", "to"]) { $(id).min = iso(d0); $(id).max = iso(d1); }
+  const fs = parseDay(Q.get("from")), te = parseDay(Q.get("to"));
+  if (fs != null || te != null) sel = { s: Math.max(d0, fs ?? d0), e: Math.min(d1, te ?? d1) };
+  if (sel && sel.s > sel.e) sel = null;
+  for (const svg of [$("vol"), $("stack")]) {
+    svg.addEventListener("pointerdown", onDown); svg.addEventListener("pointermove", onMove);
+    svg.addEventListener("pointerup", onUp); svg.addEventListener("pointercancel", onCancel);
+    svg.addEventListener("pointerleave", (e) => { if (e.pointerType === "mouse" && !drag) hideTip(); });
+  }
+  // 始めを終わりより後にしたら終わりを始めに、終わりを始めより前にしたら始めを終わりに揃える（入れ替えない）
+  const fromInputs = (which) => {
+    let s = parseDay($("from").value), e = parseDay($("to").value);
+    if (s == null && e == null) return;
+    if (s == null) s = e; if (e == null) e = s;
+    if (s > e) { if (which === "from") e = s; else s = e; }
+    setSel(s, e, true);
+  };
+  $("from").addEventListener("change", () => fromInputs("from")); $("to").addEventListener("change", () => fromInputs("to"));
+  $("clear").addEventListener("click", () => setSel(null, null, true));
+  const setBin = (b) => { binKind = b; updateHeads(); drawCharts(); renderCompare(); renderTable(); syncURL(); };
+  const setMode = (m) => { mode = m; updateHeads(); drawCharts(); renderTable(); syncURL(); };
+  $("bDay").addEventListener("click", () => setBin("day")); $("bWeek").addEventListener("click", () => setBin("week"));
+  $("mCount").addEventListener("click", () => setMode("count")); $("mShare").addEventListener("click", () => setMode("share"));
+  $("lang").addEventListener("click", () => { lang = lang === "ja" ? "en" : "ja"; applyLang(); });
+  $("tbl").addEventListener("toggle", renderTable);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && sel && !/INPUT/.test(document.activeElement.tagName)) setSel(null, null, true); });
+  document.addEventListener("pointerdown", (e) => { if (!e.target.closest || !e.target.closest(".plot")) hideTip(); });
+  let pending = false, lastW = 0;
+  new ResizeObserver(() => {
+    const w = Math.floor($("charts").clientWidth);
+    if (w === lastW || pending) return;
+    pending = true;
+    requestAnimationFrame(() => { pending = false; lastW = Math.floor($("charts").clientWidth); drawCharts(); });
+  }).observe($("charts"));
+  applyLang();
+  setSel(sel && sel.s, sel && sel.e, false);
+}
+main().catch((e) => { stop(I18N[lang].fail + ((e && e.message) || e)); console.error(e); });
+</script>
+</body>
+</html>

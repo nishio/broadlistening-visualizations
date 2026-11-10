@@ -37,9 +37,30 @@ def _clean(value):
     return value
 
 
+def _pr_attributes(data_dir: Path) -> dict[int, dict]:
+    """PR ごとの属性（作成日時・merge の有無・作者の種別）。
+
+    広聴AI の入力 CSV の ``attribute_*`` 列と同じく、意見の ``attributes`` にだけ入れる
+    （本体の ``propertyMap`` は隠す属性と分類カテゴリ用なので、ここには入れない）。
+    """
+    path = data_dir / "prs.parquet"
+    if not path.exists():
+        return {}
+    prs = pd.read_parquet(path)
+    return {
+        int(r.pr_number): {
+            "created_at": r.created_at,  # ISO 8601（UTC）。例 2025-05-15T13:59:43Z
+            "merged": bool(r.merged),
+            "author_kind": r.author_kind,  # idobata-policy-app[bot]（AI インタビュアー経由）/ human / devin-ai-integration[bot]
+        }
+        for r in prs.itertuples(index=False)
+    }
+
+
 def convert(data_dir: Path) -> dict:
     args = pd.read_parquet(data_dir / "arguments.parquet")
     clusters = pd.read_parquet(data_dir / "clusters.parquet")
+    pr_attributes = _pr_attributes(data_dir)
     overview_path = data_dir / "pipeline" / "kouchou-ai-overview.txt"
     overview = overview_path.read_text(encoding="utf-8").strip() if overview_path.exists() else ""
 
@@ -55,7 +76,7 @@ def convert(data_dir: Path) -> dict:
                 "y": float(row.umap_y),
                 "p": 0,
                 "cluster_ids": ["0", row.cluster_level1, row.cluster_level2],
-                "attributes": {"pr_number": int(row.pr_number)},
+                "attributes": {"pr_number": int(row.pr_number), **pr_attributes.get(int(row.pr_number), {})},
                 "url": row.pr_url,
             }
         )

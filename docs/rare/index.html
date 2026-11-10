@@ -1,0 +1,461 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>要約から落ちた声</title>
+<style>
+:root {
+  --bg: #f6f5f1; --fg: #1d1d1b; --muted: #6b6a64; --line: #d8d6ce; --accent: #2f4f7f;
+  --head: #e8eef7; --card: #fffdf6; --hover: #ecebe5; --sel: #dde7f4; --bar: #2a78d6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17181a; --fg: #ecebe6; --muted: #a09f98; --line: #34363a; --accent: #8fb0e0;
+    --head: #1f2a3a; --card: #24231f; --hover: #232529; --sel: #26354b; --bar: #3987e5;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.55 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+header, .bar, main, footer { max-width: 900px; margin: 0 auto; }
+header { padding: 12px 16px 4px; }
+h1 { font-size: 17px; margin: 0 0 2px; }
+h1 a { color: inherit; text-decoration: none; }
+.sub { color: var(--muted); font-size: 12px; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 8px 16px; }
+.bar[hidden] { display: none; }
+input[type=search] { flex: 1 1 200px; min-width: 0; font: inherit; padding: 5px 8px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg); }
+button { font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; cursor: pointer; }
+button[aria-pressed="true"] { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+button:focus-visible, [role=button]:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.seg { display: inline-flex; }
+.seg button { white-space: nowrap; }
+.seg button { border-radius: 0; }
+.seg button:first-child { border-radius: 6px 0 0 6px; }
+.seg button:last-child { border-radius: 0 6px 6px 0; }
+.seg button + button { border-left: 0; }
+main { padding: 0 16px 32px; }
+
+/* 割合の棒：1 色の横棒。縦の細線が全体の割合。値は行ごとに文字で出すので、行の並びがそのまま表になる */
+.chart { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px 8px; margin: 4px 0 14px; }
+.ctop { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; justify-content: space-between; }
+.chart h2 { font-size: 14px; margin: 0; }
+.note { color: var(--muted); font-size: 12px; margin: 4px 0 6px; }
+/* 行ごとに別の格子なので、列の幅は文字の大きさを揃えた em で決め、棒の左端と縦線を全行で揃える */
+.r, .ax { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) 10.5em; column-gap: 10px; width: 100%; font-size: 13px; }
+.r { align-items: stretch; text-align: left; border: 0; border-radius: 4px; background: transparent; padding: 0 6px; color: var(--fg); }
+.ax { padding: 0 6px; color: var(--muted); }
+.r:hover { background: var(--hover); }
+.r[aria-pressed="true"] { background: var(--sel); color: var(--fg); box-shadow: inset 3px 0 0 var(--accent); }
+.r[aria-pressed="true"] .fg .c { color: inherit; }  /* 押した行の面（--sel）の上では muted が 4.5:1 に届かない */
+/* 表札は 2 行まで（英語の表札は 1 行に入らない） */
+.r .nm { align-self: center; padding: 3px 0; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; }
+.tr { position: relative; min-height: 1.3em; }
+.fl { position: absolute; left: 0; top: 50%; height: 10px; margin-top: -5px; background: var(--bar); border-radius: 0 4px 4px 0; }
+.ref { position: absolute; top: 0; bottom: 0; width: 1px; background: var(--fg); }
+.ax .tr { min-height: 17px; }
+.ax .rl { position: absolute; bottom: 0; transform: translateX(-50%); white-space: nowrap; line-height: 1.4; font-size: 11px; }
+.r .fg { align-self: center; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.r .fg .c { color: var(--muted); font-size: 12px; margin-left: 6px; }
+.rmore { display: block; margin: 6px 0 0 6px; background: none; border: 0; padding: 2px 0; color: var(--accent); }
+
+.focus { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; background: var(--sel); border-radius: 6px; padding: 6px 10px; margin: 6px 0; font-size: 13px; }
+.focus[hidden] { display: none; }
+.legend { color: var(--muted); font-size: 12px; margin: 6px 0 4px; }
+ul { list-style: none; margin: 0; padding: 0; }
+/* 件数が表札の横に入らないときは次の行の右端に回す（狭い画面で表札が細い列に押し込まれないように） */
+.sh { display: flex; flex-wrap: wrap; gap: 0 8px; align-items: baseline; padding: 6px 8px; margin-top: 8px; border-radius: 6px; background: var(--head); cursor: pointer; font-weight: 600; }
+.sh .tw { width: 1em; flex: none; color: var(--muted); }
+.sh .lab { flex: 1 1 16em; min-width: 0; }
+.sh .cnt { flex: none; margin-left: auto; color: var(--muted); font-size: 12px; font-weight: 400; white-space: nowrap; }
+.take { margin: 4px 8px 2px 26px; color: var(--muted); font-size: 13px; cursor: pointer; }
+.take.clamp { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.take b { color: var(--fg); font-weight: 600; margin-right: 6px; }
+.take:hover { color: var(--fg); }
+.voices { margin: 4px 0 2px 26px; }
+.v { background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; margin: 4px 0; }
+.vt { display: flex; gap: 8px; align-items: baseline; }
+.vt .t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.src { color: var(--accent); font-size: 12px; white-space: nowrap; }
+.vm { color: var(--muted); font-size: 12px; overflow-wrap: anywhere; }
+.nn { color: var(--muted); font-size: 12px; margin-top: 3px; padding-left: 8px; border-left: 2px solid var(--line); display: flex; gap: 8px; align-items: baseline; }
+.nn span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.nn i { font-style: normal; font-size: 11px; }
+html[lang="en"] .nn i { margin-right: 4px; }
+.acts { display: flex; flex-wrap: wrap; gap: 0 14px; }
+.sib { background: none; border: 0; padding: 3px 0 0; color: var(--accent); }
+.sib:disabled { color: var(--muted); cursor: default; }
+.sibs { margin: 2px 0 0; padding-left: 8px; border-left: 2px solid var(--line); color: var(--muted); font-size: 12px; }
+.sibs li { padding: 1px 0; overflow-wrap: anywhere; }
+.com { margin: 2px 0 0; padding-left: 8px; border-left: 2px solid var(--line); color: var(--muted); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.more { display: block; background: none; border: none; padding: 2px 0 2px 26px; color: var(--accent); }
+.empty { color: var(--muted); font-size: 13px; padding: 6px 8px 6px 26px; }
+mark { background: #f3d36b; color: #1d1d1b; padding: 0 1px; }
+footer { padding: 8px 16px 24px; color: var(--muted); font-size: 11px; }
+footer a { color: var(--accent); }
+@media (max-width: 600px) {
+  /* 狭い画面では表札を棒の上の行に全幅で出す（棒の横の細い列では、ほとんどの表札が切れていた）。
+     数字の欄は全行で同じ幅にして、棒の左端と縦線を揃えたままにする */
+  .r, .ax { grid-template-columns: minmax(0, 1fr) 10.5em; column-gap: 8px; font-size: 12px; }
+  .r { padding-bottom: 3px; }
+  .r .nm { grid-column: 1 / -1; display: block; padding: 4px 0 0; }
+  .ax > :first-child { display: none; }
+  .r .fg .c { font-size: 11px; }
+  .take, .voices { margin-left: 10px; }
+  .more, .empty { padding-left: 10px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="../">←</a> <span id="title">要約から落ちた声</span></h1>
+  <div class="sub" id="sub">読み込み中…</div>
+</header>
+<div class="bar" id="ctl" hidden><!-- 読み込めてから出す（読み込み中・読み込めないときに押しても何も起きない操作を見せない） -->
+  <input type="search" id="q" placeholder="声を検索" aria-label="声を検索">
+  <span class="seg"><button id="vcl" aria-pressed="true">まとまりごと</button><button id="vall" aria-pressed="false">全まとまり通し</button></span>
+  <button id="expand">すべて開く</button>
+  <button id="collapse">すべて閉じる</button>
+  <button id="lang">EN</button>
+</div>
+<main>
+  <section class="chart" id="chart" hidden>
+    <div class="ctop">
+      <h2 id="ctitle"></h2>
+      <span class="seg" id="tabs"></span>
+    </div>
+    <div class="note" id="cnote"></div>
+    <div id="rows"></div>
+  </section>
+  <div class="focus" id="focus" hidden></div>
+  <div class="legend" id="legend"></div>
+  <ul id="list"></ul>
+</main>
+<footer id="foot"></footer>
+<script>
+"use strict";
+// 孤立度（同じ投稿の意見を除いて k 番目に近い意見との近さ）と、いちばん近い他の投稿の意見は
+// scripts/build_rare_voices.py で事前に計算してある。ここでは public_result.json の本文・表札・英訳と
+// arg_id で突き合わせて並べるだけ。
+const PAGE = 5, PAGE_FOCUS = 30, STEP = 20, PAGE_ALL = 30, STEP_ALL = 50, ROWS = 20;
+const pct = (s) => (100 * s).toFixed(1) + "%";
+const num = (n) => n.toLocaleString();
+const f3 = (v) => (v == null ? "–" : v.toFixed(3));  // 他の投稿の意見が k 件に満たない小さなレポートでは null
+const ord = (k) => k + ((k % 100 >= 11 && k % 100 <= 13) ? "th" : ({ 1: "st", 2: "nd", 3: "rd" })[k % 10] || "th");  // 英語の序数（--k は引数）
+const I18N = {
+  ja: {
+    title: "要約から落ちた声", search: "声を検索", byCluster: "まとまりごと", all: "全まとまり通し",
+    expand: "すべて開く", collapse: "すべて閉じる", src: "出典", summary: "要約", lower: "下位：",
+    chart: "孤立した声の割合", upper: (n) => `上位 ${n}`, leaves: (n) => `下位 ${n}`, attrs: "属性",
+    note: (p) => `各まとまりの意見のうち、孤立した声（全体の低い方から ${p}%）の割合。縦線が全体の ${p}%。行を押すと、その声だけを下に出す。`,
+    noteAttr: (p) => `属性（attributes）の値ごとに、孤立した声の割合。縦線が全体の ${p}%。行を押すと、その声だけを下に出す。`,
+    overall: (p) => `全体 ${p}%`, rowsMore: (n) => `残り ${num(n)} のまとまりを表示`,
+    focus: (name, n) => `「${name}」の孤立した声 ${num(n)} 件だけを表示している`, clear: "すべてに戻す",
+    sec: (r, n, s) => `孤立 ${num(r)} / ${num(n)} 件 · ${pct(s)}`, secHits: (h, r) => `${num(h)} / ${num(r)} 件`,
+    lowerHead: "下位のまとまり",
+    val: (M, v) => M.metric === "cosine" ? `近さ ${f3(v)}` : `距離 ${f3(v)}`, rank: (r) => `${num(r)} 位`,
+    nn: (M, v) => `いちばん近い他の投稿の意見（${M.metric === "cosine" ? "近さ" : "距離"} ${f3(v)}）：`,
+    sib: (n) => `同じ投稿の意見 ${n} 件`, sibNone: "同じ投稿の意見はほかにない", com: "元のコメント",
+    more: (n) => `残り ${num(n)} 件を表示`, none: "当てはまる声はない", noneSec: "このまとまりには孤立した声がない",
+    sub: (P, M) => `${P.config && P.config.question ? P.config.question + "。" : ""}表札と要約は、まとまりの多数派を代表する。ここでは逆に、似た意見がほとんど無い声を並べる：同じ投稿（${M.group_by} が同じ）の意見を除いて ${M.k} 番目に近い意見との近さが、全 ${num(M.n_arguments)} 件の低い方から ${M.percent}%（${num(M.n_rare)} 件）。重要かどうかは決めていない。具体的な論点・少数の視点・抽出で文脈が落ちた断片などが混ざる候補として読む。`,
+    legend: (M) => M.metric === "cosine"
+      ? `近さ＝同じ投稿の意見を除いて ${M.k} 番目に近い意見との、埋め込みの cosine 類似度（全体の中央値 ${f3(M.quantiles["50"])}。ここに並ぶのは ${f3(M.threshold)} 以下）。順位は全 ${num(M.n_arguments)} 件の中で似た意見が少ない順。薄い字は、いちばん近い他の投稿の意見とその近さ。これが十分に似ていれば、言い回しが違うだけかもしれない。`
+      : `距離＝同じ投稿の意見を除いて ${M.k} 番目に近い意見との、2 次元配置 x / y の上の距離（全体の中央値 ${f3(M.quantiles["50"])}。ここに並ぶのは ${f3(M.threshold)} 以上）。埋め込みを使わずに測ったので、似た意見が少ない声より、配置の上で小さな島にいる意見が上に来やすい。薄い字は、いちばん近い他の投稿の意見とその距離。`,
+    foot: "出典：チームみらい・しゃべれるマニフェスト参加者 / データセット ", code: "ソースコード",
+    mismatch: (miss) => `生成物（?rare=）がこの public_result.json と合わない（${num(miss)} 件の意見が見つからない）。scripts/build_rare_voices.py でこの public_result.json から作り、?rare= に渡す。`,
+  },
+  en: {
+    title: "Voices the summaries leave out", search: "Search voices", byCluster: "By group", all: "All groups",
+    expand: "Expand all", collapse: "Collapse all", src: "source", summary: "Summary", lower: "Subgroup: ",
+    chart: "Share of isolated voices", upper: (n) => `${n} groups`, leaves: (n) => `${n} subgroups`, attrs: "Attributes",
+    note: (p) => `Share of each group's opinions that are isolated voices (the bottom ${p}% overall). The vertical line marks the overall ${p}%. Click a row to list only those voices below.`,
+    noteAttr: (p) => `Share of isolated voices for each attribute value. The vertical line marks the overall ${p}%. Click a row to list only those voices below.`,
+    overall: (p) => `overall ${p}%`, rowsMore: (n) => `Show ${num(n)} more groups`,
+    focus: (name, n) => `Showing only the ${num(n)} isolated voices of “${name}”`, clear: "Show all",
+    sec: (r, n, s) => `isolated ${num(r)} / ${num(n)} · ${pct(s)}`, secHits: (h, r) => `${num(h)} / ${num(r)}`,
+    lowerHead: "Subgroup",
+    val: (M, v) => M.metric === "cosine" ? `similarity ${f3(v)}` : `distance ${f3(v)}`, rank: (r) => `#${num(r)}`,
+    nn: (M, v) => `Most similar opinion from another post (${M.metric === "cosine" ? "similarity" : "distance"} ${f3(v)}):`,
+    sib: (n) => `${n} other opinion${n === 1 ? "" : "s"} from the same post`, sibNone: "No other opinions from the same post", com: "Original comment",
+    more: (n) => `Show ${num(n)} more`, none: "No matching voices", noneSec: "No isolated voices in this group",
+    sub: (P, M) => `Labels and summaries speak for the majority of each group. This page lists the opposite: voices with almost no similar opinions — the ${M.percent}% of all ${num(M.n_arguments)} opinions (${num(M.n_rare)}) least similar to their ${ord(M.k)} closest opinion from another post (opinions with the same ${M.group_by} count as one post). Whether they matter is not decided here; read them as candidates — specific issues, minority views, fragments that lost their context in extraction, and so on.`,
+    legend: (M) => M.metric === "cosine"
+      ? `Similarity = cosine similarity of embeddings to the ${ord(M.k)} closest opinion, leaving out opinions from the same post (median ${f3(M.quantiles["50"])} overall; voices here are at or below ${f3(M.threshold)}). Rank = position among all ${num(M.n_arguments)} opinions, fewest similar opinions first. The faint text is the most similar opinion from another post and its similarity; if it is close enough, the voice may only be worded differently.`
+      : `Distance = distance on the 2D layout (x / y) to the ${ord(M.k)} closest opinion, leaving out opinions from the same post (median ${f3(M.quantiles["50"])} overall; voices here are at or above ${f3(M.threshold)}). Measured without embeddings, so opinions on small islands of the layout rank high rather than opinions with few similar ones. The faint text is the closest opinion from another post and its distance.`,
+    foot: "Source: Team Mirai and the participants of Shabereru Manifesto / dataset ", code: "source code",
+    mismatch: (miss) => `The precomputed file (?rare=) does not match this public_result.json (${num(miss)} opinions not found). Build it with scripts/build_rare_voices.py from this public_result.json and pass it as ?rare=.`,
+  },
+};
+const $ = (id) => document.getElementById(id);
+let P, R, M, lang = "ja", view = "cl", query = "", tab = "upper", focus = null, rowsShown = ROWS;
+let V = [], groupOf = [], members = new Map(), uppers = [], leaves = [], maxLevel = 1, groupBy = "comment_id";
+const C = new Map();
+const closed = new Set(), shown = new Map(), takeOpen = new Set(), sibOpen = new Set(), comOpen = new Set();
+
+const en = () => (P.translations && P.translations.en) || {};
+const cLabel = (c) => (lang === "en" && en().clusters && en().clusters[c.id] && en().clusters[c.id].label) || c.label;
+const cTake = (c) => (lang === "en" && en().clusters && en().clusters[c.id] && en().clusters[c.id].takeaway) || c.takeaway || "";
+const aText = (i) => (lang === "en" && en().arguments && en().arguments[P.arguments[i].arg_id]) || P.arguments[i].argument;
+const share = (id) => { const s = R.clusters[id]; return s && s[0] ? s[1] / s[0] : 0; };
+const t = () => I18N[lang];
+
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function highlight(e, text) {
+  if (!query) { e.textContent = text; return e; }
+  const low = text.toLowerCase(); let i = 0, j;
+  while ((j = low.indexOf(query, i)) >= 0) {
+    e.appendChild(document.createTextNode(text.slice(i, j)));
+    e.appendChild(el("mark", null, text.slice(j, j + query.length)));
+    i = j + query.length;
+  }
+  e.appendChild(document.createTextNode(text.slice(i)));
+  return e;
+}
+function srcLink(i) {
+  const a = P.arguments[i];
+  if (!a.url || (P.config && P.config.enable_source_link === false)) return null;
+  const l = el("a", "src", t().src); l.href = a.url; l.target = "_blank"; l.rel = "noopener";
+  return l;
+}
+function asButton(e, fn) {
+  e.setAttribute("role", "button"); e.tabIndex = 0;
+  e.addEventListener("click", fn);
+  e.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); fn(); } });
+  return e;
+}
+
+// ---- 割合の棒 ----
+function chartRows() {
+  if (tab === "attr") return R.attributes.map((a) => ({ kind: "attr", key: a.key, value: a.value, name: `${a.key} = ${a.value}`, n: a.n, r: a.rare }));
+  const list = tab === "upper" ? uppers : leaves;
+  return list.map((c) => ({ kind: "cluster", id: c.id, name: cLabel(c), n: R.clusters[c.id][0], r: R.clusters[c.id][1],
+    title: c.level > 1 && C.get(c.parent) ? cLabel(C.get(c.parent)) + " › " + cLabel(c) : cLabel(c) }));
+}
+const sameFocus = (row) => focus && focus.kind === row.kind && (row.kind === "cluster" ? focus.id === row.id : focus.key === row.key && focus.value === row.value);
+
+function renderChart() {
+  $("chart").hidden = false;
+  $("ctitle").textContent = t().chart;
+  const tabs = $("tabs"); tabs.innerHTML = "";
+  const opts = [["upper", t().upper(uppers.length)]];
+  if (maxLevel > 1) opts.push(["leaf", t().leaves(leaves.length)]);
+  if (R.attributes && R.attributes.length) opts.push(["attr", t().attrs]);
+  for (const [k, label] of opts) {
+    const b = el("button", null, label); b.setAttribute("aria-pressed", tab === k);
+    b.addEventListener("click", () => { tab = k; rowsShown = ROWS; renderChart(); });
+    tabs.appendChild(b);
+  }
+  $("cnote").textContent = tab === "attr" ? t().noteAttr(M.percent) : t().note(M.percent);
+  const rows = chartRows();
+  const overall = M.n_rare / M.n_arguments;
+  const scale = Math.max(overall, ...rows.map((r) => (r.n ? r.r / r.n : 0))) * 1.08;  // 行を足しても目盛りが変わらないよう、全行で決める
+  const x = (s) => (100 * s / scale).toFixed(2) + "%";
+  const box = $("rows"); box.innerHTML = "";
+  const ax = el("div", "ax"); ax.appendChild(el("span")); ax.setAttribute("aria-hidden", "true");
+  const at = el("span", "tr"); const rl = el("span", "rl", t().overall(M.percent)); rl.style.left = x(overall); at.appendChild(rl);
+  ax.appendChild(at); ax.appendChild(el("span")); box.appendChild(ax);
+  const lim = tab === "leaf" ? rowsShown : rows.length;
+  for (const row of rows.slice(0, lim)) {
+    const s = row.n ? row.r / row.n : 0;
+    const b = el("button", "r"); b.setAttribute("aria-pressed", !!sameFocus(row));
+    b.title = `${row.title || row.name}\n${pct(s)}（${num(row.r)} / ${num(row.n)}）`;
+    b.appendChild(el("span", "nm", row.name));
+    const tr = el("span", "tr"); const fl = el("span", "fl"); fl.style.width = x(s); tr.appendChild(fl);
+    const ref = el("span", "ref"); ref.style.left = x(overall); tr.appendChild(ref); b.appendChild(tr);
+    const fg = el("span", "fg", pct(s)); fg.appendChild(el("span", "c", `${num(row.r)} / ${num(row.n)}`)); b.appendChild(fg);
+    b.addEventListener("click", () => {
+      focus = sameFocus(row) ? null : (row.kind === "cluster" ? { kind: "cluster", id: row.id } : { kind: "attr", key: row.key, value: row.value });
+      shown.clear(); closed.clear(); render();
+      $(focus ? "focus" : "legend").scrollIntoView({ block: "start", behavior: "smooth" });
+    });
+    box.appendChild(b);
+  }
+  if (lim < rows.length) {
+    const m = el("button", "rmore", t().rowsMore(rows.length - lim));
+    m.addEventListener("click", () => { rowsShown += ROWS; renderChart(); });
+    box.appendChild(m);
+  }
+}
+
+// ---- 声の一覧 ----
+function inFocus(v) {
+  if (!focus) return true;
+  const a = P.arguments[v.i];
+  if (focus.kind === "cluster") return a.cluster_ids.includes(focus.id);
+  return ((a.attributes || {})[focus.key]) === focus.value;
+}
+const matches = (v) => !query || aText(v.i).toLowerCase().includes(query);
+function focusName() {
+  if (!focus) return "";
+  if (focus.kind === "attr") return `${focus.key} = ${focus.value}`;
+  return C.get(focus.id) ? cLabel(C.get(focus.id)) : focus.id;
+}
+
+function voiceEl(v, path) {
+  const li = el("li", "v");
+  const top = el("div", "vt"); top.appendChild(highlight(el("span", "t"), aText(v.i)));
+  const s = srcLink(v.i); if (s) top.appendChild(s);
+  li.appendChild(top);
+  const a = P.arguments[v.i];
+  const leaf = C.get(a.cluster_ids[maxLevel]), up = C.get(a.cluster_ids[1]);
+  const where = path === "full" ? [up, leaf].filter(Boolean).map(cLabel).join(" › ") : (leaf && maxLevel > 1 ? t().lower + cLabel(leaf) : "");
+  li.appendChild(el("div", "vm", [t().val(M, v.val), t().rank(v.rank), where].filter(Boolean).join(" · ")));
+  if (v.nn != null) {
+    const nn = el("div", "nn"); const sp = el("span");
+    sp.appendChild(el("i", null, t().nn(M, v.nnVal))); sp.appendChild(document.createTextNode(aText(v.nn)));
+    nn.appendChild(sp); const l = srcLink(v.nn); if (l) nn.appendChild(l);
+    li.appendChild(nn);
+  }
+  // 文脈：同じ投稿のほかの意見と、レポートが元のコメントを公開していれば（comments）その本文
+  const acts = el("div", "acts"); li.appendChild(acts);
+  const toggle = (set, label) => {
+    const b = el("button", "sib", label + (set.has(v.i) ? " ▾" : " ▸")); b.setAttribute("aria-expanded", set.has(v.i));
+    b.addEventListener("click", () => { set.has(v.i) ? set.delete(v.i) : set.add(v.i); li.replaceWith(voiceEl(v, path)); });
+    return b;
+  };
+  const sibs = (members.get(groupOf[v.i]) || []).filter((j) => j !== v.i);
+  if (sibs.length) acts.appendChild(toggle(sibOpen, t().sib(sibs.length)));
+  else { const b = el("button", "sib", t().sibNone); b.disabled = true; acts.appendChild(b); }
+  const com = P.comments && P.comments[a.comment_id] && P.comments[a.comment_id].comment;
+  if (com) acts.appendChild(toggle(comOpen, t().com));
+  if (sibs.length && sibOpen.has(v.i)) {
+    const ul = el("ul", "sibs");
+    for (const j of sibs) ul.appendChild(highlight(el("li"), aText(j)));
+    li.appendChild(ul);
+  }
+  if (com && comOpen.has(v.i)) li.appendChild(el("div", "com", com));
+  return li;
+}
+
+function moreButton(rest, onClick) { const b = el("button", "more", t().more(rest)); b.addEventListener("click", onClick); return b; }
+
+function takeEl(c, prefix) {
+  const d = el("div", "take" + (takeOpen.has(c.id) ? "" : " clamp"));
+  d.appendChild(el("b", null, prefix)); d.appendChild(document.createTextNode(cTake(c)));
+  d.setAttribute("aria-expanded", takeOpen.has(c.id));
+  return asButton(d, () => { takeOpen.has(c.id) ? takeOpen.delete(c.id) : takeOpen.add(c.id); renderList(); });
+}
+
+function sectionEl(c, list) {
+  const li = el("li", "sec");
+  const isOpen = !closed.has(c.id);
+  const head = el("div", "sh");
+  head.appendChild(el("span", "tw", isOpen ? "▾" : "▸"));
+  head.appendChild(el("span", "lab", cLabel(c)));
+  const [n, r] = R.clusters[c.id] || [c.value, 0];
+  head.appendChild(el("span", "cnt", query || focus ? t().secHits(list.length, r) : t().sec(r, n, share(c.id))));
+  head.setAttribute("aria-expanded", isOpen);
+  li.appendChild(asButton(head, () => { closed.has(c.id) ? closed.delete(c.id) : closed.add(c.id); renderList(); }));
+  if (!isOpen) return li;
+  if (cTake(c)) li.appendChild(takeEl(c, t().summary));
+  if (focus && focus.kind === "cluster" && focus.id !== c.id && C.get(focus.id)) {  // 下位のまとまりに絞っているときは、その表札と要約も出す
+    const sub = C.get(focus.id);
+    const d = takeEl(sub, `${t().lowerHead}：${cLabel(sub)}`);
+    if (!cTake(sub)) d.classList.remove("clamp");
+    li.appendChild(d);
+  }
+  if (!list.length) { li.appendChild(el("div", "empty", t().noneSec)); return li; }
+  const lim = shown.get(c.id) || (focus ? PAGE_FOCUS : PAGE);
+  const ul = el("ul", "voices");
+  for (const v of list.slice(0, lim)) ul.appendChild(voiceEl(v, "leaf"));
+  li.appendChild(ul);
+  if (list.length > lim) li.appendChild(moreButton(list.length - lim, () => { shown.set(c.id, lim + STEP); renderList(); }));
+  return li;
+}
+
+function renderList() {
+  const root = $("list"); root.innerHTML = "";
+  const hits = V.filter((v) => inFocus(v) && matches(v));
+  if (view === "all") {
+    if (!hits.length) { root.appendChild(el("li", "empty", t().none)); return; }
+    const lim = shown.get("*") || PAGE_ALL;
+    const ul = el("ul", "voices"); ul.style.marginLeft = "0";
+    for (const v of hits.slice(0, lim)) ul.appendChild(voiceEl(v, "full"));
+    root.appendChild(ul);
+    if (hits.length > lim) { const b = moreButton(hits.length - lim, () => { shown.set("*", lim + STEP_ALL); renderList(); }); b.style.paddingLeft = "0"; root.appendChild(b); }
+    return;
+  }
+  const by = new Map();
+  for (const v of hits) { const u = P.arguments[v.i].cluster_ids[1]; if (!by.has(u)) by.set(u, []); by.get(u).push(v); }
+  let any = false;
+  for (const c of uppers) {
+    const list = by.get(c.id) || [];
+    if ((query || focus) && !list.length) continue;
+    root.appendChild(sectionEl(c, list)); any = true;
+  }
+  if (!any) root.appendChild(el("li", "empty", t().none));
+}
+
+function renderFocus() {
+  const f = $("focus"); f.innerHTML = ""; f.hidden = !focus;
+  if (!focus) return;
+  f.appendChild(el("span", null, t().focus(focusName(), V.filter(inFocus).length)));
+  const b = el("button", null, t().clear);
+  b.addEventListener("click", () => { focus = null; shown.clear(); render(); });
+  f.appendChild(b);
+}
+
+function render() {
+  $("vcl").setAttribute("aria-pressed", view === "cl"); $("vall").setAttribute("aria-pressed", view === "all");
+  $("expand").hidden = $("collapse").hidden = view === "all";
+  renderChart(); renderFocus(); renderList();
+}
+
+function applyLang() {
+  document.documentElement.lang = lang;
+  const T = t();
+  $("title").textContent = T.title; document.title = T.title;
+  $("q").placeholder = T.search; $("q").setAttribute("aria-label", T.search);
+  $("vcl").textContent = T.byCluster; $("vall").textContent = T.all;
+  $("expand").textContent = T.expand; $("collapse").textContent = T.collapse;
+  $("lang").textContent = lang === "ja" ? "EN" : "日本語";
+  $("sub").textContent = T.sub(P, M);
+  $("legend").textContent = T.legend(M);
+  const f = $("foot"); f.innerHTML = ""; f.appendChild(document.createTextNode(T.foot));
+  const a = el("a", null, "nishiohirokazu/team-mirai-2025-embeddings"); a.href = "https://huggingface.co/datasets/nishiohirokazu/team-mirai-2025-embeddings"; f.appendChild(a);
+  f.appendChild(document.createTextNode(` (CC BY 4.0) · ${M.space} · k=${M.k} · ${M.group_by} · ${M.built} · `));
+  const s = el("a", null, T.code); s.href = "https://github.com/nishio/broadlistening-visualizations/blob/main/scripts/build_rare_voices.py"; f.appendChild(s);
+  render();
+}
+
+async function getJSON(url) { const r = await fetch(url); if (!r.ok) throw new Error(`${url}: ${r.status}`); return r.json(); }
+
+async function main() {
+  const q = new URLSearchParams(location.search);
+  [P, R] = await Promise.all([getJSON(q.get("data") || "../data/team-mirai-2025/public_result.json"), getJSON(q.get("rare") || "team-mirai-2025.json")]);
+  M = R.meta;
+  const idx = new Map(P.arguments.map((a, i) => [a.arg_id, i]));
+  let miss = 0;
+  for (const [id, rank, val, nnId, nnVal] of R.voices) {
+    const i = idx.get(id);
+    if (i == null) { miss++; continue; }
+    V.push({ i, rank, val, nn: nnId == null ? null : idx.get(nnId), nnVal });
+  }
+  if (miss || M.n_arguments !== P.arguments.length) { $("sub").textContent = t().mismatch(miss || Math.abs(M.n_arguments - P.arguments.length)); return; }
+  for (const c of P.clusters) C.set(c.id, c);
+  maxLevel = Math.max(...P.clusters.map((c) => c.level));
+  const bySh = (a, b) => share(b.id) - share(a.id) || (R.clusters[b.id] || [0])[0] - (R.clusters[a.id] || [0])[0];
+  uppers = P.clusters.filter((c) => c.level === 1 && R.clusters[c.id]).sort(bySh);
+  leaves = maxLevel > 1 ? P.clusters.filter((c) => c.level === maxLevel && R.clusters[c.id]).sort(bySh) : [];
+  // 同じ投稿の意見：?group= の属性で束ねる。省くと生成物を作ったときの --group-by。属性の無い意見は comment_id で束ねる
+  groupBy = q.get("group") || M.group_by || "comment_id";
+  groupOf = P.arguments.map((a) => {
+    const v = groupBy === "comment_id" ? null : (a.attributes || {})[groupBy];
+    return v == null ? "c\t" + a.comment_id : "v\t" + v;
+  });
+  groupOf.forEach((g, i) => { if (!members.has(g)) members.set(g, []); members.get(g).push(i); });
+  if (!(P.translations && P.translations.en && (P.translations.en.clusters || P.translations.en.arguments))) $("lang").hidden = true;
+  let timer = null;
+  $("q").addEventListener("input", (e) => { clearTimeout(timer); timer = setTimeout(() => { query = e.target.value.trim().toLowerCase(); shown.clear(); renderList(); }, 200); });
+  $("vcl").addEventListener("click", () => { view = "cl"; shown.clear(); render(); });
+  $("vall").addEventListener("click", () => { view = "all"; shown.clear(); render(); });
+  $("expand").addEventListener("click", () => { closed.clear(); renderList(); });
+  $("collapse").addEventListener("click", () => { for (const c of uppers) closed.add(c.id); renderList(); });
+  $("lang").addEventListener("click", () => { lang = lang === "ja" ? "en" : "ja"; applyLang(); });
+  applyLang();
+  $("ctl").hidden = false;
+}
+main().catch((e) => { $("sub").textContent = "読み込みに失敗しました: " + e; });
+</script>
+</body>
+</html>
