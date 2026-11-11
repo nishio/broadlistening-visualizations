@@ -5,7 +5,7 @@
 ここで試して、使われたものだけを kouchou-ai 本体（公開ビューアの可視化 plugin）に入れるかどうか判断する。本体に入れるかを先に決めずに、まず個人 repo で作って見せる、という置き場。
 
 - デモ：https://nishio.github.io/broadlistening-visualizations/
-- 方針の経緯：[kouchou-ai-developer-wiki の open-decisions A13](https://digitaldemocracy2030.github.io/kouchou-ai-developer-wiki/analyses/open-decisions)
+- 方針の経緯：[kouchou-ai-developer-wiki の open-decisions A13](https://nishio.github.io/kouchou-ai-developer-wiki/analyses/open-decisions)
 
 ## カタログ
 
@@ -398,7 +398,7 @@ cd docs && python3 -m http.server 8000
 
 ## 一緒に言われた話題の作り
 
-散布図は「文が似ているか」で意見を置く。こちらは「同じ投稿の中で一緒に書かれたか」で下位クラスタどうしを線で結ぶ。地図の上で離れているのに一緒に書かれる組は、散布図の裂け目（同じ話題が地図の上で離して置かれた所）の候補になる（文も遠ければ、別の話題を一緒に書いているだけかもしれない。下の「文の近さ」）。kouchou-ai-developer-wiki の「クラスタ内 MST ＋クラスタ間の橋」（[graph-visualization-proposal-2026-05-25](https://digitaldemocracy2030.github.io/kouchou-ai-developer-wiki/analyses/graph-visualization-proposal-2026-05-25)、nishio 発案）の橋を、LLM ではなく実データの共起で引く版でもある。地図は作り直さず、広聴AI の x / y の上に線を重ねる（wiki の移植経路でいう A）。
+散布図は「文が似ているか」で意見を置く。こちらは「同じ投稿の中で一緒に書かれたか」で下位クラスタどうしを線で結ぶ。地図の上で離れているのに一緒に書かれる組は、散布図の裂け目（同じ話題が地図の上で離して置かれた所）の候補になる（文も遠ければ、別の話題を一緒に書いているだけかもしれない。下の「文の近さ」）。kouchou-ai-developer-wiki の「クラスタ内 MST ＋クラスタ間の橋」（[graph-visualization-proposal-2026-05-25](https://nishio.github.io/kouchou-ai-developer-wiki/analyses/graph-visualization-proposal-2026-05-25)、nishio 発案）の橋を、LLM ではなく実データの共起で引く版でもある。地図は作り直さず、広聴AI の x / y の上に線を重ねる（wiki の移植経路でいう A）。
 
 - **束ねる単位**：既定は `comment_id`。`--group-by <属性名>` を渡すと `arguments[].attributes` のその属性で束ねる。このデータは変換で 1 本の PR を課題ごとの comment に割っているので（comment 18,802・意見のある PR 8,909）、`pr_number` で束ねた
   - PR で束ねると、8,909 本の 41%（3,666 本）が 2 つ以上の上位クラスタに、63%（5,589 本）が 2 つ以上の下位クラスタにまたがる。comment_id では 18,802 件のうち 1,005 件・1,659 件だけ
@@ -514,7 +514,7 @@ cd docs && python3 -m http.server 8000
 - 表札が置けた帯：幅 1280px の週・割合で 20 本中 14 本、日・割合で 7 本、週・件数で 3 本、日・件数で 0 本（帯が細く、触れたときの吹き出しで読む）。幅 390px の週・割合で 9 本
 - 幅 390px（タッチ）：横になぞって 7/1〜15 を通ると週に揃って 6/30〜7/20 が選ばれた。縦に 260px なぞるとページがスクロールし（ライト・ダーク各 6 回で 348〜380px。指を離した後の惰性で幅がある）、期間は変わらなかった。押すと吹き出しが出て、期間は変わらなかった。印の名前を押すと期間が変わり、前に押して出た吹き出しは消える。横へのはみ出しはなし
 - 日時の属性がないレポート（`docs/data/team-mirai-2025-stance/1_13/public_result.json`、属性は pr_number と stance_score）では「日時の属性がない」と出て、図と操作欄は出ない。コンソールのエラーはどの場合も 0
-- **5 月とそれ以降の比べには、話題の変化のほかに抽出の入力の違いが混ざる**。課題の抽出（1 段目）に PR の本文が入ったのは 2025-05 に作られた PR の一部（1,105 本）だけで、6・7 月の PR は全件、本文なしで（タイトル・コミットメッセージ・コメントから）抽出されている（[kouchou-ai-developer-wiki の team-mirai-2025-open-dataset](https://digitaldemocracy2030.github.io/kouchou-ai-developer-wiki/sources/team-mirai-2025-open-dataset)、2026-11-10 に確認）。PR 1 本あたりの意見の数も、5/16〜21 は 4.17 件、6 月は 2.30 件、7/1〜19 は 2.01 件と違う（JST、`public_result.json` から Python で数えた）
+- **5 月とそれ以降の比べには、話題の変化のほかに抽出の入力の違いが混ざる**。課題の抽出（1 段目）に PR の本文が入ったのは 2025-05 に作られた PR の一部（1,105 本）だけで、6・7 月の PR は全件、本文なしで（タイトル・コミットメッセージ・コメントから）抽出されている（[kouchou-ai-developer-wiki の team-mirai-2025-open-dataset](https://nishio.github.io/kouchou-ai-developer-wiki/sources/team-mirai-2025-open-dataset)、2026-11-10 に確認）。PR 1 本あたりの意見の数も、5/16〜21 は 4.17 件、6 月は 2.30 件、7/1〜19 は 2.01 件と違う（JST、`public_result.json` から Python で数えた）
   - どちらも本文なしの 6 月と 7/1〜19 で比べても残る変化：家族 1.4% → 4.3%、子ども 5.6% → 8.5%、移民 1.7% → 2.6%、AI の倫理 7.0% → 5.3%
   - 医療制度（5/16〜21 の 4.8% → 6 月 8.9% → 7/1〜19 の 9.8%）は 5 月から 6 月の間に動いている。本文の有無の切り替わりと重なるので、話題の変化とは言い切れない
   - 「どの行が本文入りの入力から作られたか」の列（`arguments` の `pr_body_in_step1_input`）は、2026-11-11 に Hugging Face のデータセットに入った（同じ wiki ページ）。変換で属性に載せて、本文の有無で分けて比べ直すのはまだしていない（`public_result.json` は列が入る前に取ったデータから作った）
