@@ -150,19 +150,21 @@ footer a { color: var(--accent); }
 // 入力は public_result.json だけ。2 万件の振り分けと比べる計算はブラウザで数ミリ秒なので、事前計算はしない。
 // URL 引数：?data= 入力 / ?time= 日時の属性（省略時は ISO 8601 として読める属性を探す）/ ?tz= 区切りのタイムゾーン（省略時はブラウザ）
 //           ?group= 束ねる属性（省略時は comment_id）/ ?marks=2025-07-03:公示|Campaign+starts,... 縦線 / ?from= ?to= 期間 / ?bin=week / ?mode=count
+//           ?unit=minute|day 最小の単位（省略時は、全意見が 1 日に収まり時刻を持つなら分）。分の単位では ?bin=m5|m15、?marks=13:15:S1,...、?from=2026-10-04T13:15
 const I18N = {
   ja: {
     title: "話題の流れ（いつ何が届いたか）", doc: "話題の流れ",
-    sub: (o) => `${o.q ? o.q + "。" : ""}意見 ${o.n} 件を、属性 ${o.time} の日付（${o.tz}。${o.range}）で区切った。上の段は全体の量、下の段は上位 ${o.k} のまとまりの積み上げ。期間をドラッグで選ぶ（スマホは横になぞる）と、その期間とそれ以外を比べて、割合が増えた話題・減った話題を並べる。` + (o.timeless ? `日時のない意見 ${o.timeless} 件は数えていない。` : ""),
-    range: (a, b, n) => `${a}〜${b}、${n} 日`,
+    sub: (o) => `${o.q ? o.q + "。" : ""}意見 ${o.n} 件を、属性 ${o.time} の${o.minute ? "時刻" : "日付"}（${o.tz}。${o.range}）で区切った。上の段は全体の量、下の段は上位 ${o.k} のまとまりの積み上げ。期間をドラッグで選ぶ（スマホは横になぞる）と、その期間とそれ以外を比べて、割合が増えた話題・減った話題を並べる。` + (o.timeless ? `日時のない意見 ${o.timeless} 件は数えていない。` : ""),
+    range: (a, b, n) => `${a}〜${b}、${n} ${MINUTE ? "分" : "日"}`,
     period: "期間", clear: "解除", day: "日", week: "週", count: "件数", share: "割合",
-    volH: (bin) => bin === "day" ? "全体の量（日ごと）" : "全体の量（週ごと。週は月曜はじまり）",
+    binName: (bin) => bin === "day" ? "日" : bin === "week" ? "週" : `${binMin(bin)} 分`,
+    volH: (bin) => bin === "day" ? "全体の量（日ごと）" : bin === "week" ? "全体の量（週ごと。週は月曜はじまり）" : `全体の量（${binMin(bin)} 分ごと）`,
     kArgs: "意見の数", kGroups: (g) => `${g} の数（同じ値の意見は 1 つに数える）`,
     stackH: (k, m) => `上位 ${k} のまとまりの${m === "share" ? "割合" : "件数"}`,
     stackHint: "帯に触れると強調する。帯の上の文字はまとまりの表札（入らない分は切った）",
     tipN: (n, p) => `${n} 件 · ${p}`, tipArgs: (n) => `意見 ${n} 件`, tipGroups: (g, n) => `${g} ${n}`, tipTotal: (n) => `全体 ${n} 件`,
-    hint: (m) => "期間をドラッグで選ぶ（スマホは横になぞる）か、上で日付を入れると、その期間とそれ以外を比べる。マウスで 1 回押すとその日（週）だけを選び、スマホで押すと値を見る。" + (m ? "印の名前を押すと、その印から次の印の前日までを選ぶ。" : ""),
-    cmpH: (r, n) => n > 1 ? `${r}の ${n} 日間とそれ以外を比べる` : `${r}とそれ以外を比べる`,
+    hint: (m) => `期間をドラッグで選ぶ（スマホは横になぞる）か、上で${MINUTE ? "日時" : "日付"}を入れると、その期間とそれ以外を比べる。マウスで 1 回押すとその${MINUTE ? "区切り" : "日（週）"}だけを選び、スマホで押すと値を見る。` + (m ? `印の名前を押すと、その印から次の印の${MINUTE ? "前" : "前日"}までを選ぶ。` : ""),
+    cmpH: (r, n) => MINUTE ? `${r}（${n} 分間）とそれ以外を比べる` : n > 1 ? `${r}の ${n} 日間とそれ以外を比べる` : `${r}とそれ以外を比べる`,
     cmpMeta: (o) => `この期間：意見 ${o.nIn} 件（全体の ${o.p}）・${o.g} ${o.gIn}。それ以外：意見 ${o.nOut} 件・${o.g} ${o.gOut}`,
     lgIn: "選んだ期間", lgOut: "それ以外", order: "並びは割合の差（ポイント）の大きい順。行を押すと、その期間の意見の一覧",
     topH: "上位のまとまり（意見の数の割合で比べる）",
@@ -175,7 +177,7 @@ const I18N = {
     why: "割合が動いた理由（参加者の層が変わったのか、問いかけや聞き手の側が変わったのか）は、この比べ方では分けられない。",
     all: "全期間を選んでいるので、比べる相手がない。", empty: "この期間に届いた意見はない。",
     parent: "上位のまとまり", miniL: "このまとまりの意見の数の移り変わり",
-    miniH: (bin) => `このまとまりの意見の数（${bin === "day" ? "日" : "週"}ごと。青い棒が選んだ期間）`,
+    miniH: (bin) => `このまとまりの意見の数（${I18N.ja.binName(bin)}ごと。青い棒が選んだ期間）`,
     listH: (r, n, g, ng) => `${r}に届いたこのまとまりの意見 ${n} 件（${g} ${ng}）。届いた順`,
     src: "出典", moreArgs: (n) => `残り ${n} 件を表示`,
     table: "表で見る（件数・割合）", tTotal: "全体（意見）",
@@ -189,16 +191,17 @@ const I18N = {
   },
   en: {
     title: "Topic flow (what arrived when)", doc: "Topic flow",
-    sub: (o) => `${o.q ? o.q + ". " : ""}${o.n} opinions, bucketed by the date in attribute ${o.time} (${o.tz}; ${o.range}). Top: overall volume. Bottom: the ${o.k} top-level groups, stacked. Drag across the charts (swipe sideways on a phone) to pick a period; the page compares it with the rest and lists the topics whose share rose or fell.` + (o.timeless ? ` ${o.timeless} opinions without a date are left out.` : ""),
-    range: (a, b, n) => `${a} to ${b}, ${n} days`,
+    sub: (o) => `${o.q ? o.q + ". " : ""}${o.n} opinions, bucketed by the ${o.minute ? "time" : "date"} in attribute ${o.time} (${o.tz}; ${o.range}). Top: overall volume. Bottom: the ${o.k} top-level groups, stacked. Drag across the charts (swipe sideways on a phone) to pick a period; the page compares it with the rest and lists the topics whose share rose or fell.` + (o.timeless ? ` ${o.timeless} opinions without a date are left out.` : ""),
+    range: (a, b, n) => `${a} to ${b}, ${n} ${MINUTE ? "minutes" : "days"}`,
     period: "Period", clear: "Clear", day: "Day", week: "Week", count: "Count", share: "Share",
-    volH: (bin) => bin === "day" ? "Overall volume (per day)" : "Overall volume (per week, starting Monday)",
+    binName: (bin) => bin === "day" ? "day" : bin === "week" ? "week" : `${binMin(bin)} min`,
+    volH: (bin) => bin === "day" ? "Overall volume (per day)" : bin === "week" ? "Overall volume (per week, starting Monday)" : `Overall volume (per ${binMin(bin)} minutes)`,
     kArgs: "opinions", kGroups: (g) => `distinct ${g} (opinions with the same value count once)`,
     stackH: (k, m) => `${m === "share" ? "Share" : "Count"} of the ${k} top-level groups`,
     stackHint: "Hover or tap a band to highlight it. Band labels are group names, cut where they do not fit.",
     tipN: (n, p) => `${n} · ${p}`, tipArgs: (n) => `${n} opinions`, tipGroups: (g, n) => `${n} distinct ${g}`, tipTotal: (n) => `${n} in total`,
-    hint: (m) => "Drag across the charts (swipe sideways on a phone) or enter dates above to compare that period with the rest. A single mouse click selects just that day (or week); a tap on a phone shows the values." + (m ? " Click a marker's name to select from it to the day before the next marker." : ""),
-    cmpH: (r, n) => n > 1 ? `${r} (${n} days) vs the rest` : `${r} vs the rest`,
+    hint: (m) => `Drag across the charts (swipe sideways on a phone) or enter ${MINUTE ? "times" : "dates"} above to compare that period with the rest. A single mouse click selects just that ${MINUTE ? "bucket" : "day (or week)"}; a tap on a phone shows the values.` + (m ? ` Click a marker's name to select from it to ${MINUTE ? "the next marker" : "the day before the next marker"}.` : ""),
+    cmpH: (r, n) => MINUTE ? `${r} (${n} minutes) vs the rest` : n > 1 ? `${r} (${n} days) vs the rest` : `${r} vs the rest`,
     cmpMeta: (o) => `This period: ${o.nIn} opinions (${o.p} of all), ${o.gIn} distinct ${o.g}. The rest: ${o.nOut} opinions, ${o.gOut} distinct ${o.g}.`,
     lgIn: "selected period", lgOut: "the rest", order: "Sorted by the difference in share (points). Click a row to list that period's opinions",
     topH: "Top-level groups (share of opinions)",
@@ -211,7 +214,7 @@ const I18N = {
     why: "Why a share moved (a different mix of participants, or a change in the questions or the interviewer) cannot be told apart by this comparison.",
     all: "The whole range is selected, so there is nothing to compare it with.", empty: "No opinions arrived in this period.",
     parent: "Top-level group", miniL: "Opinions in this group over time",
-    miniH: (bin) => `Opinions in this group per ${bin} (blue bars: the selected period)`,
+    miniH: (bin) => `Opinions in this group per ${I18N.en.binName(bin)} (blue bars: the selected period)`,
     listH: (r, n, g, ng) => `${n} opinions in this group from ${r} (${ng} distinct ${g}), in order of arrival`,
     src: "source", moreArgs: (n) => `Show ${n} more`,
     table: "Show as a table (counts and shares)", tTotal: "All (opinions)",
@@ -239,9 +242,12 @@ const T = () => I18N[lang];
 let P = null, lang = "ja";
 let TZ = "UTC", TIME = null, GROUP = "comment_id", warns = [];
 let R = null;              // 日時の読めた意見（届いた順）
-let d0 = 0, d1 = 0;        // 最初と最後の日（1970-01-01 からの日数。tz で区切った日付）
+let d0 = 0, d1 = 0;        // 最初と最後の日（1970-01-01 からの日数。tz で区切った日付）。分の単位では 1970-01-01 00:00（tz）からの分
+// 全意見が 1 日に収まり、どれも時刻を持つなら、最小の単位を日から分に替える（会議の文字起こしなど）。?unit=day / ?unit=minute で指定もできる
+let MINUTE = false;
+const binMin = (bin) => +String(bin).slice(1); // "m5" → 5
 let tops = [], lows = [], lowParent = [], FIRST = null, PAIRS = [], GDAYS = [];
-const AGG = {};            // 区切り方（day / week）ごとの集計
+const AGG = {};            // 区切り方（day / week、分の単位では m5 / m15）ごとの集計
 let binKind = "day", mode = "share";
 let sel = null;            // 選んだ期間 { s, e }（日。両端を含む）
 let marks = [];
@@ -347,6 +353,9 @@ function build() {
   });
   rows.sort((p, q) => p[2] - q[2] || p[0] - q[0]);
   const n = rows.length;
+  const unit = Q.get("unit");
+  MINUTE = unit === "minute" || (unit !== "day" && n > 0 && rows.every((r) => r[3] >= 0 && r[1] === rows[0][1]));
+  if (MINUTE) for (const r of rows) r[1] = r[1] * 1440 + Math.max(0, r[3]);
   R = { n, timeless, nGroups: gi.size, idx: new Int32Array(n), day: new Int32Array(n), t: new Float64Array(n), hm: new Int16Array(n), top: new Int32Array(n), low: new Int32Array(n), grp: new Int32Array(n) };
   rows.forEach((r, j) => { R.idx[j] = r[0]; R.day[j] = r[1]; R.t[j] = r[2]; R.hm[j] = r[3]; R.top[j] = r[4]; R.low[j] = r[5]; R.grp[j] = r[6]; });
   if (!n) return;
@@ -374,9 +383,11 @@ function build() {
 function agg(kind) {
   if (AGG[kind]) return AGG[kind];
   const bins = [], map = new Int32Array(d1 - d0 + 1);
+  // 分の区切りは時計に揃える（5 分なら :00・:05…）。週は月曜はじまり
+  const k = kind === "day" ? 1 : kind === "week" ? 7 : binMin(kind), first = kind === "week" ? d0 - mod(d0 + 3, 7) : d0 - mod(d0, k);
   if (kind === "day") for (let d = d0; d <= d1; d++) { map[d - d0] = bins.length; bins.push({ s: d, e: d + 1 }); }
-  else for (let w = d0 - mod(d0 + 3, 7); w <= d1; w += 7) {
-    const s = Math.max(w, d0), e = Math.min(w + 7, d1 + 1);
+  else for (let w = first; w <= d1; w += k) {
+    const s = Math.max(w, d0), e = Math.min(w + k, d1 + 1);
     for (let d = s; d < e; d++) map[d - d0] = bins.length;
     bins.push({ s, e });
   }
@@ -418,17 +429,36 @@ function compare(s, e) {
 }
 
 // ---------- 日付の書き方 ----------
-function ymd(d) { const t = new Date(d * DAY); return [t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate(), t.getUTCDay()]; }
-const iso = (d) => new Date(d * DAY).toISOString().slice(0, 10);
-// 無い日付（2025-02-30 など）は読まない（Date.UTC は翌月に繰り越すので、書き戻して確かめる）
-const parseDay = (s) => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || ""); if (!m) return null; const d = Date.UTC(+m[1], +m[2] - 1, +m[3]) / DAY; return iso(d) === m[0] ? d : null; };
-function fmtDay(d) { const [, m, dd, w] = ymd(d); return lang === "ja" ? `${m}/${dd}（${WD.ja[w]}）` : `${MON[m - 1]} ${dd} (${WD.en[w]})`; }
-function fmtBin(b) { return b.e - b.s === 1 ? fmtDay(b.s) : fmtDay(b.s) + (lang === "ja" ? "〜" : " – ") + fmtDay(b.e - 1); }
+// 分の単位のときは、d は分。日付の部分は Math.floor(d / 1440)
+const dayPart = (d) => (MINUTE ? Math.floor(d / 1440) : d);
+const hhmm = (d) => { const m = mod(d, 1440); return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`; };
+function ymd(d) { const t = new Date(dayPart(d) * DAY); return [t.getUTCFullYear(), t.getUTCMonth() + 1, t.getUTCDate(), t.getUTCDay()]; }
+const isoDay = (d) => new Date(d * DAY).toISOString().slice(0, 10);
+const iso = (d) => (MINUTE ? `${isoDay(dayPart(d))}T${hhmm(d)}` : isoDay(d));
+// 無い日付（2025-02-30 など）は読まない（Date.UTC は翌月に繰り越すので、書き戻して確かめる）。分の単位では 2026-10-04T13:15 も、日付を省いた 13:15（最初の日）も読む
+const parseDay = (s) => {
+  const m = /^(?:(\d{4})-(\d{2})-(\d{2}))?(?:T?(\d{2}):(\d{2}))?$/.exec(s || "");
+  if (!m || (!m[1] && !m[4]) || (!MINUTE && m[4])) return null;
+  let d;
+  if (m[1]) { d = Date.UTC(+m[1], +m[2] - 1, +m[3]) / DAY; if (isoDay(d) !== `${m[1]}-${m[2]}-${m[3]}`) return null; }
+  else d = Math.floor(d0 / 1440);
+  if (!MINUTE) return d;
+  if (m[4] && (+m[4] > 23 || +m[5] > 59)) return null;
+  return d * 1440 + (m[4] ? +m[4] * 60 + +m[5] : 0);
+};
+function fmtDay(d) {
+  if (MINUTE) return hhmm(d);
+  const [, m, dd, w] = ymd(d); return lang === "ja" ? `${m}/${dd}（${WD.ja[w]}）` : `${MON[m - 1]} ${dd} (${WD.en[w]})`;
+}
+// 分の区切りは終わりの時刻（含まない）まで書く：13:15〜13:20
+function fmtBin(b) { return b.e - b.s === 1 ? fmtDay(b.s) : fmtDay(b.s) + (lang === "ja" ? "〜" : " – ") + fmtDay(MINUTE ? b.e : b.e - 1); }
 function fmtBinShort(b) {
+  if (MINUTE) return hhmm(b.s);
   const md = (d) => { const [, m, dd] = ymd(d); return lang === "ja" ? `${m}/${dd}` : `${MON[m - 1]} ${dd}`; };
   return b.e - b.s === 1 ? md(b.s) : md(b.s) + "–" + md(b.e - 1);
 }
 function fmtRange(s, e) {
+  if (MINUTE) return hhmm(s) + (lang === "ja" ? "〜" : " – ") + hhmm(e + 1);
   const [ys, ms, ds, ws] = ymd(s), [ye, me, de, we] = ymd(e);
   if (lang === "ja") {
     const a = `${ys}/${ms}/${ds}（${WD.ja[ws]}）`;
@@ -438,6 +468,7 @@ function fmtRange(s, e) {
   return s === e ? `${a}, ${ys}` : ys === ye ? `${a} – ${b}, ${ye}` : `${a}, ${ys} – ${b}, ${ye}`;
 }
 function fmtTime(j) {
+  if (MINUTE) return hhmm(R.day[j]);
   const [, m, dd] = ymd(R.day[j]), hm = R.hm[j];
   const t = hm >= 0 ? ` ${String(Math.floor(hm / 60)).padStart(2, "0")}:${String(hm % 60).padStart(2, "0")}` : "";
   return (lang === "ja" ? `${m}/${dd}` : `${MON[m - 1]} ${dd}`) + t;
@@ -489,6 +520,11 @@ const dayAtX = (x) => Math.max(d0, Math.min(d1, Math.floor(d0 + ((x - LAY.l) / L
 const binAtX = (x) => agg(binKind).map[dayAtX(x) - d0];
 function xTicks() {
   const pxDay = LAY.pw / (d1 + 1 - d0), need = lang === "en" ? 54 : 44, out = [];
+  if (MINUTE) { // 5・10・15・30・60・120 分のうち、文字が重ならない一番細かい刻み（時計に揃える）
+    const k = [5, 10, 15, 30, 60, 120].find((k) => pxDay * k >= need) || 240;
+    for (let d = d0 + mod(-d0, k); d <= d1; d += k) out.push({ d, lab: hhmm(d) });
+    return out;
+  }
   const md = (d) => { const [, m, dd] = ymd(d); return lang === "ja" ? `${m}/${dd}` : `${MON[m - 1]} ${dd}`; };
   if (pxDay >= need) { for (let d = d0; d <= d1; d++) out.push({ d, lab: md(d) }); return out; }
   for (const k of [7, 14]) if (pxDay * k >= need) {
@@ -787,7 +823,9 @@ function syncURL() {
   history.replaceState(null, "", u);
 }
 // 4 週より長ければ週ごとを既定にする（日ごとの割合は、意見の少ない日に大きく揺れて帯が読みにくい）
-const defaultBin = () => (d1 - d0 + 1 > 28 ? "week" : "day");
+const defaultBin = () => (MINUTE ? (d1 - d0 + 1 > 480 ? "m15" : "m5") : d1 - d0 + 1 > 28 ? "week" : "day");
+// 2 つのボタンの区切り（日の単位：日・週、分の単位：5 分・15 分）
+const binKinds = () => (MINUTE ? ["m5", "m15"] : ["day", "week"]);
 
 // ---------- 比べた結果 ----------
 function dumbbell(pi, po, max) {
@@ -954,9 +992,10 @@ function applyLang() {
   document.title = t.doc; $("title").textContent = t.title;
   $("lang").textContent = lang === "ja" ? "EN" : "日本語";
   $("lPeriod").textContent = t.period; $("clear").textContent = t.clear;
-  $("bDay").textContent = t.day; $("bWeek").textContent = t.week; $("mCount").textContent = t.count; $("mShare").textContent = t.share;
+  $("bDay").textContent = t.binName(binKinds()[0]); $("bWeek").textContent = t.binName(binKinds()[1]); $("mCount").textContent = t.count; $("mShare").textContent = t.share;
   const q = lang === "en" ? en().question : P.config && P.config.question;
-  $("sub").textContent = t.sub({ q, n: nf(R.n), time: TIME, tz: TZ, range: t.range(iso(d0), iso(d1), nf(d1 - d0 + 1)), k: tops.length, timeless: R.timeless ? nf(R.timeless) : 0 });
+  const rng = MINUTE ? t.range(`${isoDay(dayPart(d0))} ${hhmm(d0)}`, hhmm(d1 + 1), nf(d1 - d0 + 1)) : t.range(iso(d0), iso(d1), nf(d1 - d0 + 1));
+  $("sub").textContent = t.sub({ q, n: nf(R.n), time: TIME, tz: TZ, range: rng, k: tops.length, timeless: R.timeless ? nf(R.timeless) : 0, minute: MINUTE });
   $("warn").textContent = warns.map((w) => "⚠ " + w()).join(" ");
   $("kArgs").textContent = t.kArgs; $("kGroups").textContent = t.kGroups(GROUP);
   $("stackHint").textContent = t.stackHint; $("tblS").textContent = t.table;
@@ -966,15 +1005,18 @@ function applyLang() {
 }
 function updateHeads() {
   $("volH").textContent = T().volH(binKind); $("stackH").textContent = T().stackH(tops.length, mode);
-  $("bDay").setAttribute("aria-pressed", binKind === "day"); $("bWeek").setAttribute("aria-pressed", binKind === "week");
+  $("bDay").setAttribute("aria-pressed", binKind === binKinds()[0]); $("bWeek").setAttribute("aria-pressed", binKind === binKinds()[1]);
   $("mCount").setAttribute("aria-pressed", mode === "count"); $("mShare").setAttribute("aria-pressed", mode === "share");
 }
 function footer() {
   const t = T(), f = $("foot");
-  f.textContent = ""; f.appendChild(document.createTextNode(t.foot));
-  const a = document.createElement("a"); a.href = "https://huggingface.co/datasets/nishiohirokazu/team-mirai-2025-embeddings";
-  a.textContent = "nishiohirokazu/team-mirai-2025-embeddings"; f.appendChild(a);
-  f.appendChild(document.createTextNode(" (CC BY 4.0) · "));
+  f.textContent = "";
+  if (!Q.get("data")) { // 出典はチームみらいのデータのもの。?data= で別のレポートを読んだときは出さない
+    f.appendChild(document.createTextNode(t.foot));
+    const a = document.createElement("a"); a.href = "https://huggingface.co/datasets/nishiohirokazu/team-mirai-2025-embeddings";
+    a.textContent = "nishiohirokazu/team-mirai-2025-embeddings"; f.appendChild(a);
+    f.appendChild(document.createTextNode(" (CC BY 4.0) · "));
+  }
   const s = document.createElement("a"); s.href = "https://github.com/nishio/broadlistening-visualizations/blob/main/docs/timeline/index.html";
   s.textContent = t.code; f.appendChild(s);
 }
@@ -997,18 +1039,19 @@ async function main() {
   const ft = findTime();
   if (!ft.ok) { stop(!ft.name ? T().noTime(ft.names.join(", ")) : ft.exists ? T().badTime(ft.name) : T().noAttr(ft.name, ft.names.join(", "))); return; }
   TIME = ft.name;
+  build();
+  if (!R.n) { stop(T().badTime(TIME)); return; }
+  // 印：2025-07-03:公示|Campaign+starts。分の単位では 13:15:S1 や 2026-10-04T13:15:S1 も書ける
   marks = (Q.get("marks") || "").split(",").map((p) => {
-    const m = /^\s*(\d{4}-\d{2}-\d{2})(?::(.*))?$/.exec(p), day = m && parseDay(m[1]);
+    const m = /^\s*(\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?|\d{2}:\d{2})(?::(.*))?$/.exec(p), day = m && parseDay(m[1]);
     if (day == null) return null;
     const [ja, enl] = (m[2] || "").split("|");
     return { day, ja: (ja || "").trim(), en: (enl || ja || "").trim() };
   }).filter(Boolean).sort((a, b) => a.day - b.day);
-  build();
-  if (!R.n) { stop(T().badTime(TIME)); return; }
-  binKind = Q.get("bin") === "week" || Q.get("bin") === "day" ? Q.get("bin") : defaultBin();
+  binKind = binKinds().includes(Q.get("bin")) ? Q.get("bin") : defaultBin();
   mode = Q.get("mode") === "count" ? "count" : "share";
   $("bar").hidden = false; $("main").hidden = false;
-  for (const id of ["from", "to"]) { $(id).min = iso(d0); $(id).max = iso(d1); }
+  for (const id of ["from", "to"]) { if (MINUTE) { $(id).type = "datetime-local"; $(id).step = 60; } $(id).min = iso(d0); $(id).max = iso(d1); }
   const fs = parseDay(Q.get("from")), te = parseDay(Q.get("to"));
   if (fs != null || te != null) sel = { s: Math.max(d0, fs ?? d0), e: Math.min(d1, te ?? d1) };
   if (sel && sel.s > sel.e) sel = null;
@@ -1029,7 +1072,7 @@ async function main() {
   $("clear").addEventListener("click", () => setSel(null, null, true));
   const setBin = (b) => { binKind = b; updateHeads(); drawCharts(); renderCompare(); renderTable(); syncURL(); };
   const setMode = (m) => { mode = m; updateHeads(); drawCharts(); renderTable(); syncURL(); };
-  $("bDay").addEventListener("click", () => setBin("day")); $("bWeek").addEventListener("click", () => setBin("week"));
+  $("bDay").addEventListener("click", () => setBin(binKinds()[0])); $("bWeek").addEventListener("click", () => setBin(binKinds()[1]));
   $("mCount").addEventListener("click", () => setMode("count")); $("mShare").addEventListener("click", () => setMode("share"));
   $("lang").addEventListener("click", () => { lang = lang === "ja" ? "en" : "ja"; applyLang(); });
   $("tbl").addEventListener("toggle", renderTable);

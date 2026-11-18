@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>議論の楽譜</title>
+<style>
+:root {
+  --bg: #f6f5f1; --fg: #1d1d1b; --muted: #6b6a64; --line: #d8d6ce; --accent: #2f4f7f;
+  --grid: #e4e2da; --row: #efede6; --note: #5c5a52; --run: #b9b6aa; --hi: #2a78d6; --tip: #fffefb; --mark: #8a6d3b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #17181a; --fg: #ecebe6; --muted: #a09f98; --line: #34363a; --accent: #8fb0e0;
+    --grid: #26282b; --row: #1f2023; --note: #c9c7bf; --run: #55585e; --hi: #4d97ee; --tip: #222326; --mark: #d1b27a;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.55 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; }
+header, .bar, main, footer { max-width: 1100px; margin: 0 auto; padding-left: 16px; padding-right: 16px; }
+header { padding-top: 12px; padding-bottom: 4px; }
+h1 { font-size: 17px; margin: 0 0 2px; }
+h1 a { color: inherit; text-decoration: none; }
+.sub { color: var(--muted); font-size: 12px; }
+.warn { font-size: 12px; margin-top: 2px; }
+.bar { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding-top: 8px; padding-bottom: 4px; font-size: 12px; color: var(--muted); }
+button { font: inherit; font-size: 12px; padding: 4px 10px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 6px; cursor: pointer; }
+button[aria-pressed="true"] { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+.seg { display: inline-flex; align-items: center; gap: 6px; }
+.seg span.btns { display: inline-flex; }
+.seg .btns button { border-radius: 0; margin-left: -1px; }
+.seg .btns button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+.seg .btns button:last-child { border-radius: 0 6px 6px 0; }
+#wrap { position: relative; margin-top: 6px; }
+canvas { display: block; width: 100%; touch-action: pan-y; }
+.tip { position: absolute; pointer-events: none; background: var(--tip); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; font-size: 12px; max-width: 360px; box-shadow: 0 2px 8px rgba(0,0,0,.12); display: none; z-index: 2; }
+.tip.on { display: block; }
+.tip .m { color: var(--muted); font-size: 11px; }
+section { margin-top: 18px; }
+h2 { font-size: 15px; margin: 0 0 4px; }
+h3 { font-size: 13px; margin: 14px 0 4px; }
+.note { font-size: 12px; color: var(--muted); margin: 4px 0; }
+.list { list-style: none; margin: 0; padding: 0; }
+.list li { border-top: 1px solid var(--line); padding: 6px 0; font-size: 13px; }
+.list li button.lk { background: none; border: none; padding: 0; color: var(--accent); text-align: left; font-size: 13px; cursor: pointer; }
+.runs { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.runs b { color: var(--fg); font-weight: 600; }
+.args { list-style: none; margin: 4px 0 0; padding: 0; }
+.args li { display: flex; gap: 8px; align-items: baseline; padding: 4px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.args time { flex: none; color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; min-width: 3.4em; }
+.args span { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.args a { color: var(--accent); font-size: 12px; white-space: nowrap; }
+#detail { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+#detail .x { float: right; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; }
+@media (max-width: 720px) { .cols { grid-template-columns: 1fr; } }
+footer { padding-top: 12px; padding-bottom: 24px; color: var(--muted); font-size: 11px; }
+footer a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1><a href="../">←</a> <span id="title">議論の楽譜（どの話題がいつ語られたか）</span></h1>
+  <div class="sub" id="sub">読み込み中…</div>
+  <div class="warn" id="warn"></div>
+</header>
+<div class="bar" id="bar" hidden>
+  <span class="seg"><span id="lLevel">段</span><span class="btns"><button id="lv1" aria-pressed="true">上位のまとまり</button><button id="lv2" aria-pressed="false">下位まで</button></span></span>
+  <span class="seg"><span id="lOrder">並び</span><span class="btns"><button id="oFirst" aria-pressed="true">最初に出た順</button><button id="oSize" aria-pressed="false">件数の順</button></span></span>
+  <span class="seg"><span id="lGap">続きとみなす間隔</span><span class="btns" id="gaps"></span></span>
+</div>
+<main id="main" hidden>
+  <div id="wrap"><canvas id="cv"></canvas><div class="tip" id="tip"></div></div>
+  <section id="detail" hidden></section>
+  <section>
+    <div class="cols">
+      <div><h2 id="retH">戻ってきた話題</h2><div class="note" id="retN"></div><ul class="list" id="ret"></ul></div>
+      <div><h2 id="oneH">一度だけ出た論点</h2><div class="note" id="oneN"></div><ul class="list" id="one"></ul></div>
+    </div>
+  </section>
+</main>
+<footer id="foot"></footer>
+<script>
+"use strict";
+// 議論の楽譜：まとまりごとに横 1 本の段を引き、意見の時刻に音符（点）を置く。
+// 間隔 gap 以内で続いた音符は 1 つの「節」として線でつなぐ。節が 2 つ以上ある段は、いったん離れて戻ってきた話題。
+// 入力は public_result.json だけ（日時の属性が要る）。会議の文字起こしのように、1 件ごとの時刻が分かるレポートを想定する。
+// URL 引数：?data= 入力 / ?time= 日時の属性（省略時は ISO 8601 として読める属性を探す）/ ?tz= 表示のタイムゾーン
+//           ?marks=13:15:S1,14:55:S2（または 2025-07-03:公示）縦線 / ?gap= 続きとみなす間隔（分）/ ?level=2 下位まで / ?order=size
+const Q = new URLSearchParams(location.search);
+const ISO = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?\s*(Z|[+-]\d{2}(?::?\d{2})?)?)?$/i;
+const MIN = 60000, DAY = 86400000;
+const FONT = 'system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif';
+const $ = (id) => document.getElementById(id);
+const nf = (n) => Math.round(n).toLocaleString("ja-JP");
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+
+let P = null, TIME = null, TZ = "UTC", t0 = 0, t1 = 0, span = 0;
+let A = [];              // 時刻の読めた意見 { i, t, top, low }
+let tops = [], lows = [], byId = new Map();
+let level = Q.get("level") === "2" ? 2 : 1, order = Q.get("order") === "size" ? "size" : "first", GAP = 0;
+let ROWS = [], LAY = null, marks = [], pinRow = -1, hovRow = -1;
+
+// ---------- 時刻 ----------
+function parseT(raw) {
+  if (typeof raw !== "string") return null;
+  const m = ISO.exec(raw.trim());
+  if (!m) return null;
+  const t = Date.parse(m[4] == null ? `${m[1]}-${m[2]}-${m[3]}T00:00:00Z` : raw.trim().replace(" ", "T") + (m[7] ? "" : "Z"));
+  return Number.isNaN(t) ? null : t;
+}
+function attrOf(a, name) {
+  const v = a.attributes ? a.attributes[name] : undefined;
+  if (v != null && v !== "") return v;
+  const pm = P.propertyMap && P.propertyMap[name];
+  return pm ? pm[a.arg_id] : undefined;
+}
+function findTime() {
+  const req = Q.get("time");
+  if (req) return req;
+  const names = new Set();
+  for (const a of P.arguments) for (const k in a.attributes || {}) names.add(k);
+  let best = null;
+  for (const name of names) {
+    let n = 0, hit = 0;
+    for (const a of P.arguments) { const v = attrOf(a, name); if (v == null || v === "") continue; n++; if (parseT(String(v)) != null) hit++; }
+    if (hit && hit >= 0.8 * n && (!best || hit > best.hit)) best = { name, hit };
+  }
+  return best && best.name;
+}
+let fmtHM = null, fmtMD = null;
+const multiDay = () => span > 2 * DAY;
+function fmt(t) {
+  const p = {};
+  for (const x of (multiDay() ? fmtMD : fmtHM).formatToParts(t)) p[x.type] = x.value;
+  return multiDay() ? `${p.month}/${p.day}` : `${p.hour}:${p.minute}`;
+}
+const fmtDur = (ms) => ms >= DAY ? `${Math.round(ms / DAY)} 日` : ms >= 90 * MIN ? `${(ms / 3600000).toFixed(1)} 時間` : `${Math.round(ms / MIN)} 分`;
+// 印の時刻：13:15（最初の日）・2026-10-04T13:15・2025-07-03
+function parseMark(s) {
+  if (/^\d{2}:\d{2}$/.test(s)) {
+    const p = {};
+    for (const x of new Intl.DateTimeFormat("en-CA", { timeZone: TZ, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(t0)) p[x.type] = x.value;
+    s = `${p.year}-${p.month}-${p.day}T${s}`;
+  }
+  const t = parseT(s);
+  if (t == null || /[zZ]|[+-]\d{2}:?\d{2}$/.test(s) || !/T/.test(s)) return t;
+  // 時差の無い時刻は tz の地方時として読む（parseT は UTC として読んだので、tz の時差を引く）
+  const p = {};
+  for (const x of new Intl.DateTimeFormat("en-US", { timeZone: TZ, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric" }).formatToParts(t)) p[x.type] = x.value;
+  const asLocal = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute);
+  return t - (asLocal - t);
+}
+
+// ---------- 段と節 ----------
+// 既定の間隔：全体の長さの 1/30 を、きりのよい値（分・時間・日）に丸める
+function defaultGap() {
+  const steps = [2, 3, 5, 10, 15, 20, 30, 60, 120, 240, 720, 1440, 2880, 10080].map((m) => m * MIN);
+  return steps.find((s) => s >= span / 30) || steps[steps.length - 1];
+}
+function runsOf(ts) {
+  const out = [];
+  for (const j of ts) {
+    const t = A[j].t, r = out[out.length - 1];
+    if (r && t - r.e <= GAP) { r.e = t; r.idx.push(j); } else out.push({ s: t, e: t, idx: [j] });
+  }
+  return out;
+}
+function buildRows() {
+  const notesOf = (key, id) => A.map((a, j) => (a[key] === id ? j : -1)).filter((j) => j >= 0);
+  const mk = (c, lv) => { const idx = notesOf(lv === 1 ? "top" : "low", c.id); return { c, lv, idx, first: idx.length ? A[idx[0]].t : Infinity, runs: runsOf(idx) }; };
+  const sortRows = (rs) => rs.sort(order === "size" ? (a, b) => b.idx.length - a.idx.length : (a, b) => a.first - b.first);
+  const topRows = sortRows(tops.map((c) => mk(c, 1)).filter((r) => r.idx.length));
+  ROWS = [];
+  for (const r of topRows) {
+    ROWS.push(r);
+    if (level === 2) for (const s of sortRows(lows.filter((c) => topOf(c) === r.c.id).map((c) => mk(c, 2)).filter((x) => x.idx.length))) ROWS.push(s);
+  }
+}
+function topOf(c) { let x = c; while (x && x.level > 1) x = byId.get(x.parent); return x ? x.id : null; }
+
+// ---------- 描く ----------
+const cv = $("cv"), ctx = cv.getContext("2d");
+function textW(s, px, bold) { ctx.font = `${bold ? "600 " : ""}${px}px ${FONT}`; return ctx.measureText(s).width; }
+function cut(s, px, w, bold) {
+  if (textW(s, px, bold) <= w) return s;
+  const ch = [...s]; let lo = 1, hi = ch.length;
+  while (lo < hi) { const m = (lo + hi + 1) >> 1; if (textW(ch.slice(0, m).join("") + "…", px, bold) <= w) lo = m; else hi = m - 1; }
+  return ch.slice(0, lo).join("") + "…";
+}
+function ticks(pw) {
+  const need = 46, steps = multiDay() ? [1, 2, 7, 14, 30].map((d) => d * DAY) : [5, 10, 15, 30, 60, 120, 240].map((m) => m * MIN);
+  const k = steps.find((s) => (s / span) * pw >= need) || steps[steps.length - 1];
+  // 時計（tz の地方時）に揃える
+  const off = (() => { const p = {}; for (const x of fmtHM.formatToParts(t0)) p[x.type] = x.value; return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute) - Math.floor(t0 / MIN) * MIN; })();
+  const out = [];
+  for (let t = Math.ceil((t0 + off) / k) * k - off; t <= t1; t += k) out.push(t);
+  return out;
+}
+function draw() {
+  const W = Math.max(300, Math.floor($("wrap").clientWidth)), narrow = W < 640;
+  const lab = narrow ? 110 : 230, r = 12, top = 30, bot = 24;
+  const rh = (row) => (row.lv === 1 ? (narrow ? 26 : 24) : 17);
+  let y = top; const ys = ROWS.map((row) => { const y0 = y; y += rh(row); return y0; });
+  const H = y + bot, pw = W - lab - r, dpr = window.devicePixelRatio || 1;
+  cv.width = W * dpr; cv.height = H * dpr; cv.style.height = H + "px";
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const X = (t) => lab + ((t - t0) / span) * pw;
+  LAY = { W, H, lab, pw, top, ys, rh, X, narrow };
+  const C = { fg: css("--fg"), muted: css("--muted"), grid: css("--grid"), row: css("--row"), note: css("--note"), run: css("--run"), hi: css("--hi"), mark: css("--mark"), line: css("--line") };
+  ctx.clearRect(0, 0, W, H);
+  // 段の地
+  ROWS.forEach((row, i) => {
+    if (row.lv === 1) { ctx.fillStyle = C.row; ctx.fillRect(0, ys[i], W, rh(row)); }
+    if (i === hovRow || i === pinRow) { ctx.fillStyle = C.hi + "22"; ctx.fillRect(0, ys[i], W, rh(row)); }
+  });
+  // 目盛り
+  ctx.font = `11px ${FONT}`; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+  for (const t of ticks(pw)) {
+    const x = Math.round(X(t)) + 0.5;
+    ctx.strokeStyle = C.grid; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x, top); ctx.lineTo(x, H - bot); ctx.stroke();
+    ctx.fillStyle = C.muted; ctx.fillText(fmt(t), x, H - bot + 15);
+  }
+  // 印
+  let lastEnd = -Infinity;
+  for (const m of marks) {
+    if (m.t < t0 || m.t > t1) continue;
+    const x = Math.round(X(m.t)) + 0.5;
+    ctx.strokeStyle = C.mark; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(x, top - 6); ctx.lineTo(x, H - bot); ctx.stroke(); ctx.setLineDash([]);
+    if (!m.label) continue;
+    ctx.font = `600 11px ${FONT}`; const w = ctx.measureText(m.label).width;
+    let tx = x + 3; if (tx < lastEnd + 4) continue; if (tx + w > W) tx = x - 3 - w;
+    ctx.fillStyle = C.mark; ctx.textAlign = "left"; ctx.fillText(m.label, tx, top - 10); lastEnd = tx + w;
+  }
+  // 段の名前・節・音符
+  ROWS.forEach((row, i) => {
+    const h = rh(row), cy = ys[i] + h / 2, hi = i === hovRow || i === pinRow, big = row.lv === 1;
+    const px = big ? (narrow ? 11 : 12) : 11, indent = big ? 6 : 16;
+    ctx.font = `${big ? "600 " : ""}${px}px ${FONT}`; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.fillStyle = hi ? C.hi : big ? C.fg : C.muted;
+    ctx.fillText(cut(row.c.label, px, lab - indent - 6, big), indent, cy);
+    const th = big ? 6 : 4;
+    for (const run of row.runs) {
+      const x0 = X(run.s), x1 = Math.max(X(run.e), x0 + 0.5);
+      ctx.fillStyle = hi ? C.hi + "66" : C.run;
+      ctx.beginPath(); ctx.roundRect ? ctx.roundRect(x0 - th / 2, cy - th / 2, x1 - x0 + th, th, th / 2) : ctx.rect(x0 - th / 2, cy - th / 2, x1 - x0 + th, th); ctx.fill();
+    }
+    ctx.fillStyle = hi ? C.hi : C.note;
+    const rad = big ? 2.6 : 2;
+    for (const j of row.idx) { ctx.beginPath(); ctx.arc(X(A[j].t), cy, rad, 0, 7); ctx.fill(); }
+  });
+  ctx.strokeStyle = C.line; ctx.beginPath(); ctx.moveTo(lab - 0.5, top); ctx.lineTo(lab - 0.5, H - bot); ctx.stroke();
+}
+
+// ---------- 触る ----------
+function rowAt(y) { if (!LAY) return -1; for (let i = 0; i < ROWS.length; i++) if (y >= LAY.ys[i] && y < LAY.ys[i] + LAY.rh(ROWS[i])) return i; return -1; }
+function noteAt(i, x) {
+  if (i < 0 || x < LAY.lab) return -1;
+  let best = -1, bd = 7;
+  for (const j of ROWS[i].idx) { const d = Math.abs(LAY.X(A[j].t) - x); if (d < bd) { bd = d; best = j; } }
+  return best;
+}
+function runAt(i, x) {
+  if (i < 0 || x < LAY.lab) return null;
+  return ROWS[i].runs.find((r) => x >= LAY.X(r.s) - 6 && x <= LAY.X(r.e) + 6) || null;
+}
+function showTip(x, y, lines) {
+  const tip = $("tip"); tip.textContent = "";
+  for (const [cls, text] of lines) { const d = document.createElement("div"); if (cls) d.className = cls; d.textContent = text; tip.appendChild(d); }
+  tip.classList.add("on");
+  const W = LAY.W, tw = tip.offsetWidth, th = tip.offsetHeight;
+  let left = x + 14; if (left + tw > W) left = x - 14 - tw;
+  tip.style.left = Math.max(0, left) + "px"; tip.style.top = Math.max(0, y - th - 8) + "px";
+}
+function hideTip() { $("tip").classList.remove("on"); }
+function pos(e) { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; }
+cv.addEventListener("pointermove", (e) => {
+  if (!LAY) return;
+  const [x, y] = pos(e), i = rowAt(y);
+  if (i !== hovRow) { hovRow = i; draw(); }
+  const j = noteAt(i, x);
+  if (j >= 0) { const a = P.arguments[A[j].i]; showTip(x, y, [["m", `${fmt(A[j].t)} · ${ROWS[i].c.label}`], ["", a.argument]]); }
+  else if (i >= 0 && x < LAY.lab) showTip(x, y, [["", ROWS[i].c.label], ["m", `${nf(ROWS[i].idx.length)} 件 · 節 ${ROWS[i].runs.length}`]]);
+  else hideTip();
+});
+cv.addEventListener("pointerleave", () => { hovRow = -1; hideTip(); draw(); });
+cv.addEventListener("click", (e) => {
+  const [x, y] = pos(e), i = rowAt(y);
+  if (i < 0) return;
+  pinRow = i; draw();
+  const run = x >= LAY.lab ? runAt(i, x) : null;
+  showDetail(ROWS[i], run);
+});
+
+// ---------- 一覧 ----------
+function argList(idx) {
+  const ul = document.createElement("ul"); ul.className = "args";
+  const showLink = !(P.config && P.config.enable_source_link === false);
+  for (const j of idx) {
+    const a = P.arguments[A[j].i], li = document.createElement("li");
+    const tm = document.createElement("time"); tm.textContent = fmt(A[j].t); li.appendChild(tm);
+    const sp = document.createElement("span"); sp.textContent = a.argument; li.appendChild(sp);
+    if (a.url && showLink) { const l = document.createElement("a"); l.href = a.url; l.target = "_blank"; l.rel = "noopener"; l.textContent = "出典"; li.appendChild(l); }
+    ul.appendChild(li);
+  }
+  return ul;
+}
+function runText(row) {
+  const parts = [];
+  row.runs.forEach((r, k) => {
+    if (k) parts.push(`（${fmtDur(r.s - row.runs[k - 1].e)} あいて）`);
+    parts.push(`${fmt(r.s)}${r.e - r.s >= MIN ? "–" + fmt(r.e) : ""} ${r.idx.length} 件`);
+  });
+  return parts.join(" ");
+}
+function showDetail(row, run) {
+  const box = $("detail"); box.hidden = false; box.textContent = "";
+  const x = document.createElement("button"); x.className = "x"; x.textContent = "閉じる";
+  x.addEventListener("click", () => { box.hidden = true; pinRow = -1; draw(); });
+  box.appendChild(x);
+  const h = document.createElement("h2"); h.textContent = row.c.label; box.appendChild(h);
+  if (row.lv === 2) { const p = byId.get(topOf(row.c)); if (p) box.appendChild(Object.assign(document.createElement("div"), { className: "note", textContent: `上位のまとまり：${p.label}` })); }
+  if (row.c.takeaway) box.appendChild(Object.assign(document.createElement("div"), { className: "note", textContent: row.c.takeaway }));
+  box.appendChild(Object.assign(document.createElement("div"), { className: "runs", textContent: `節 ${row.runs.length}：${runText(row)}` }));
+  const h3 = document.createElement("h3");
+  h3.textContent = run ? `${fmt(run.s)}–${fmt(run.e)} の節の意見 ${run.idx.length} 件` : `このまとまりの意見 ${row.idx.length} 件（時刻の順）`;
+  box.appendChild(h3);
+  box.appendChild(argList(run ? run.idx : row.idx));
+  box.scrollIntoView({ block: "nearest" });
+}
+function renderLists() {
+  // 二つの一覧は、表示の段によらず下位のまとまりで数える（上位のまとまりは広く、どれも何度も出てくるので）
+  const lowRows0 = lows.length ? lows.map((c) => { const idx = A.map((a, j) => (a.low === c.id ? j : -1)).filter((j) => j >= 0); return { c, lv: 2, idx, runs: runsOf(idx) }; }).filter((r) => r.idx.length)
+    : ROWS;
+  const open = (r) => { const k = ROWS.findIndex((x) => x.c.id === r.c.id); pinRow = k; draw(); showDetail(k >= 0 ? ROWS[k] : r, null); };
+  // 戻ってきた話題：2 件以上の節が、間隔より長くあいて 2 つ以上ある。いちばん長い休みの順
+  const all = lowRows0;
+  const ret = all.map((r) => {
+    const solid = r.runs.filter((x) => x.idx.length >= 2);
+    let gap = 0; for (let k = 1; k < solid.length; k++) gap = Math.max(gap, solid[k].s - solid[k - 1].e);
+    return { r, solid: solid.length, gap };
+  }).filter((x) => x.solid >= 2).sort((a, b) => b.gap - a.gap);
+  $("retN").textContent = `${lows.length ? "下位の" : ""}まとまりのうち、2 件以上の節（${fmtDur(GAP)} 以内で続いた点のまとまり）が、${fmtDur(GAP)} より長くあいて 2 つ以上あるもの：${ret.length}。いちばん長い休みの順`;
+  const ul = $("ret"); ul.textContent = "";
+  for (const x of ret.slice(0, 30)) {
+    const li = document.createElement("li");
+    const b = document.createElement("button"); b.className = "lk"; b.textContent = x.r.c.label; b.addEventListener("click", () => open(x.r)); li.appendChild(b);
+    li.appendChild(Object.assign(document.createElement("div"), { className: "runs", textContent: runText(x.r) }));
+    ul.appendChild(li);
+  }
+  // 一度だけ出た論点：下位のまとまりで、節が 1 つだけのもの（2 件以上）。時刻の順
+  const lowRows = lowRows0.filter((r) => r.idx.length >= 2 && r.runs.length === 1).sort((a, b) => a.runs[0].s - b.runs[0].s);
+  $("oneN").textContent = `下位のまとまりのうち、2 件以上あって、すべてが ${fmtDur(GAP)} 以内に続けて出たもの：${lowRows.length}。その場で出て、あとで同じまとまりに戻らなかった論点の候補。別の言葉で受け止められていることもあるので、「回収されなかった」とは言い切れない`;
+  const ol = $("one"); ol.textContent = "";
+  for (const r of lowRows.slice(0, 60)) {
+    const li = document.createElement("li");
+    const b = document.createElement("button"); b.className = "lk"; b.textContent = r.c.label;
+    b.addEventListener("click", () => open(r));
+    li.appendChild(b);
+    li.appendChild(Object.assign(document.createElement("div"), { className: "runs", textContent: `${fmt(r.runs[0].s)}${r.runs[0].e - r.runs[0].s >= MIN ? "–" + fmt(r.runs[0].e) : ""} · ${r.idx.length} 件 · ${(byId.get(topOf(r.c)) || {}).label || ""}` }));
+    ol.appendChild(li);
+  }
+}
+
+// ---------- つなぎ ----------
+function sync() {
+  const u = new URL(location.href);
+  if (level === 2) u.searchParams.set("level", "2"); else u.searchParams.delete("level");
+  if (order === "size") u.searchParams.set("order", "size"); else u.searchParams.delete("order");
+  if (GAP !== defaultGap()) u.searchParams.set("gap", String(GAP / MIN)); else u.searchParams.delete("gap");
+  history.replaceState(null, "", u);
+}
+function refresh() {
+  $("lv1").setAttribute("aria-pressed", level === 1); $("lv2").setAttribute("aria-pressed", level === 2);
+  $("oFirst").setAttribute("aria-pressed", order === "first"); $("oSize").setAttribute("aria-pressed", order === "size");
+  for (const b of $("gaps").children) b.setAttribute("aria-pressed", +b.dataset.g === GAP);
+  pinRow = -1; $("detail").hidden = true;
+  buildRows(); draw(); renderLists(); sync();
+}
+function footer() {
+  const f = $("foot"); f.textContent = "";
+  if (!Q.get("data")) f.appendChild(document.createTextNode("出典：チームみらい・しゃべれるマニフェスト参加者 / データセット nishiohirokazu/team-mirai-2025-embeddings (CC BY 4.0) · "));
+  const s = document.createElement("a"); s.href = "https://github.com/nishio/broadlistening-visualizations/blob/main/docs/score/index.html"; s.textContent = "ソースコード"; f.appendChild(s);
+}
+async function main() {
+  const src = Q.get("data") || "../data/team-mirai-2025/public_result.json";
+  const res = await fetch(src);
+  if (!res.ok) throw new Error(`${src}: HTTP ${res.status}`);
+  P = await res.json();
+  TZ = Q.get("tz") || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  try { new Intl.DateTimeFormat("en-US", { timeZone: TZ }); } catch (e) { $("warn").textContent = `⚠ タイムゾーン ${TZ} を読めないので UTC で表示した。`; TZ = "UTC"; }
+  fmtHM = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  fmtMD = new Intl.DateTimeFormat("en-US", { timeZone: TZ, month: "numeric", day: "numeric" });
+  TIME = findTime();
+  if (!TIME) { $("sub").textContent = "日時の属性がない。arguments[].attributes に ISO 8601 の日時として読める属性が要る（?time=<属性名> で指定もできる）。"; footer(); return; }
+  byId = new Map(P.clusters.map((c) => [c.id, c]));
+  const maxLevel = P.clusters.reduce((m, c) => Math.max(m, c.level), 0);
+  tops = P.clusters.filter((c) => c.level === 1);
+  lows = maxLevel >= 2 ? P.clusters.filter((c) => c.level === maxLevel) : [];
+  const lv = new Map(P.clusters.map((c) => [c.id, c.level]));
+  let timeless = 0;
+  P.arguments.forEach((a, i) => {
+    const t = parseT(String(attrOf(a, TIME) ?? ""));
+    if (t == null) { timeless++; return; }
+    let top = null, low = null;
+    for (const id of a.cluster_ids || []) { const l = lv.get(id); if (l === 1) top = id; else if (l === maxLevel && l >= 2) low = id; }
+    A.push({ i, t, top, low });
+  });
+  if (!A.length) { $("sub").textContent = `属性 ${TIME} を日時として読めない。`; footer(); return; }
+  A.sort((a, b) => a.t - b.t || a.i - b.i);
+  // 軸の両端は分に丸める（印が最初の意見の数秒前にあっても描けるように）
+  t0 = Math.floor(A[0].t / MIN) * MIN; t1 = Math.ceil(A[A.length - 1].t / MIN) * MIN; span = Math.max(MIN, t1 - t0);
+  if (!lows.length) $("lv2").disabled = true; if (!lows.length) level = 1;
+  marks = (Q.get("marks") || "").split(",").map((p) => {
+    const m = /^\s*(\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2})?|\d{2}:\d{2})(?::(.*))?$/.exec(p);
+    if (!m) return null;
+    const t = parseMark(m[1]);
+    return t == null ? null : { t, label: (m[2] || "").split("|")[0].trim() };
+  }).filter(Boolean);
+  const g = +Q.get("gap");
+  GAP = g > 0 ? g * MIN : defaultGap();
+  const choices = [...new Set([defaultGap() / 2, defaultGap(), defaultGap() * 3, GAP].map((x) => Math.max(MIN, Math.round(x / MIN) * MIN)))].sort((a, b) => a - b);
+  for (const c of choices) { const b = document.createElement("button"); b.dataset.g = c; b.textContent = fmtDur(c); b.addEventListener("click", () => { GAP = c; refresh(); }); $("gaps").appendChild(b); }
+  const q = P.config && P.config.question;
+  $("sub").textContent = `${q ? q + "。" : ""}意見 ${nf(A.length)} 件を、属性 ${TIME} の時刻（${TZ}。${fmt(t0)}〜${fmt(t1)}、${fmtDur(t1 - t0)}）で並べた。まとまりごとに 1 段で、点が 1 件の意見。続けて語られた点（間隔が「続きとみなす間隔」以内）を線でつなぐ。段の名前か線を押すと意見を読める。` + (timeless ? `日時のない意見 ${nf(timeless)} 件は除いた。` : "");
+  $("bar").hidden = false; $("main").hidden = false;
+  $("lv1").addEventListener("click", () => { level = 1; refresh(); }); $("lv2").addEventListener("click", () => { level = 2; refresh(); });
+  $("oFirst").addEventListener("click", () => { order = "first"; refresh(); }); $("oSize").addEventListener("click", () => { order = "size"; refresh(); });
+  footer();
+  let lastW = 0;
+  new ResizeObserver(() => { const w = Math.floor($("wrap").clientWidth); if (w !== lastW) { lastW = w; if (ROWS.length) draw(); } }).observe($("wrap"));
+  refresh();
+}
+main().catch((e) => { $("sub").textContent = "読み込みに失敗しました: " + ((e && e.message) || e); console.error(e); });
+</script>
+</body>
+</html>
