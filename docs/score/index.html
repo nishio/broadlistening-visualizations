@@ -8,11 +8,13 @@
 :root {
   --bg: #f6f5f1; --fg: #1d1d1b; --muted: #6b6a64; --line: #d8d6ce; --accent: #2f4f7f;
   --grid: #e4e2da; --row: #efede6; --note: #5c5a52; --run: #b9b6aa; --hi: #2a78d6; --tip: #fffefb; --mark: #8a6d3b;
+  --t-agree: #2e8b57; --t-oppose: #d1495b; --t-evid: #2a78d6; --t-new: #8e5bd0; --t-other: #8a8a84;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #17181a; --fg: #ecebe6; --muted: #a09f98; --line: #34363a; --accent: #8fb0e0;
     --grid: #26282b; --row: #1f2023; --note: #c9c7bf; --run: #55585e; --hi: #4d97ee; --tip: #222326; --mark: #d1b27a;
+    --t-agree: #5cc28a; --t-oppose: #f07a8a; --t-evid: #6aa8f0; --t-new: #b892f0; --t-other: #9a9a94;
   }
 }
 * { box-sizing: border-box; }
@@ -55,6 +57,14 @@ h3 { font-size: 13px; margin: 14px 0 4px; }
 #detail .x { float: right; }
 .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 0 24px; }
 @media (max-width: 720px) { .cols { grid-template-columns: 1fr; } }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+button.ty[aria-pressed="false"] { opacity: .45; }
+button.ty[aria-pressed="true"] { background: var(--bg); color: var(--fg); border-color: var(--fg); }
+.lks { list-style: none; margin: 4px 0 0; padding: 0; }
+.lks li { padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.lks .q { color: var(--muted); font-size: 12px; }
+.lks .tg { font-size: 11px; font-weight: 600; margin-right: 6px; }
+.lks button.lk { background: none; border: none; padding: 0; color: var(--accent); text-align: left; font-size: 13px; cursor: pointer; }
 footer { padding-top: 12px; padding-bottom: 24px; color: var(--muted); font-size: 11px; }
 footer a { color: var(--accent); }
 </style>
@@ -69,6 +79,8 @@ footer a { color: var(--accent); }
   <span class="seg"><span id="lLevel">段</span><span class="btns"><button id="lv1" aria-pressed="true">上位のまとまり</button><button id="lv2" aria-pressed="false">下位まで</button></span></span>
   <span class="seg"><span id="lOrder">並び</span><span class="btns"><button id="oFirst" aria-pressed="true">最初に出た順</button><button id="oSize" aria-pressed="false">件数の順</button></span></span>
   <span class="seg"><span id="lGap">続きとみなす間隔</span><span class="btns" id="gaps"></span></span>
+  <span class="seg" id="lmodeSeg" hidden><span>つながり</span><span class="btns"><button id="mSel" aria-pressed="true">選んだ点だけ</button><button id="mFar" aria-pressed="false">間隔より離れたもの</button><button id="mAll" aria-pressed="false">すべて</button></span></span>
+  <span class="seg" id="typeSeg" hidden></span>
 </div>
 <main id="main" hidden>
   <div id="wrap"><canvas id="cv"></canvas><div class="tip" id="tip"></div></div>
@@ -77,6 +89,14 @@ footer a { color: var(--accent); }
     <div class="cols">
       <div><h2 id="retH">戻ってきた話題</h2><div class="note" id="retN"></div><ul class="list" id="ret"></ul></div>
       <div><h2 id="oneH">一度だけ出た論点</h2><div class="note" id="oneN"></div><ul class="list" id="one"></ul></div>
+    </div>
+  </section>
+  <section id="linkSec" hidden>
+    <div class="note" id="linkN"></div>
+    <h2>時間をおいて受けた発言</h2><div class="note" id="farN"></div><ul class="lks" id="far"></ul>
+    <div class="cols">
+      <div><h2>よく受けられた発言（発散）</h2><div class="note" id="divN"></div><ul class="lks" id="div"></ul></div>
+      <div><h2>前の複数の発言を受けた発言（収束）</h2><div class="note" id="conN"></div><ul class="lks" id="con"></ul></div>
     </div>
   </section>
 </main>
@@ -88,6 +108,8 @@ footer a { color: var(--accent); }
 // 入力は public_result.json だけ（日時の属性が要る）。会議の文字起こしのように、1 件ごとの時刻が分かるレポートを想定する。
 // URL 引数：?data= 入力 / ?time= 日時の属性（省略時は ISO 8601 として読める属性を探す）/ ?tz= 表示のタイムゾーン
 //           ?marks=13:15:S1,14:55:S2（または 2025-07-03:公示）縦線 / ?gap= 続きとみなす間隔（分）/ ?level=2 下位まで / ?order=size
+//           ?links= 発言どうしのつながり（{links:[{from,to,type,quote,reason}]}、from/to は arg_id。後の発言 to が前の発言 from を受けている）
+//           ?lmode=far|all つながりの既定の見せ方（省略時は選んだ点だけ）
 const Q = new URLSearchParams(location.search);
 const ISO = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:[.,]\d+)?)?\s*(Z|[+-]\d{2}(?::?\d{2})?)?)?$/i;
 const MIN = 60000, DAY = 86400000;
@@ -101,6 +123,10 @@ let A = [];              // 時刻の読めた意見 { i, t, top, low }
 let tops = [], lows = [], byId = new Map();
 let level = Q.get("level") === "2" ? 2 : 1, order = Q.get("order") === "size" ? "size" : "first", GAP = 0;
 let ROWS = [], LAY = null, marks = [], pinRow = -1, hovRow = -1;
+// つながり（リンコグラフィー）
+const TYPES = [["賛成", "--t-agree"], ["反対", "--t-oppose"], ["根拠の追加", "--t-evid"], ["新しい切り口", "--t-new"], ["その他", "--t-other"]];
+let LINKS = null, LMETA = null, OUT = new Map(), IN = new Map(), rowOf = new Map(), hovNote = -1, pinNote = -1;
+let lmode = ["far", "all"].includes(Q.get("lmode")) ? Q.get("lmode") : "sel", shownTypes = new Set(TYPES.map((t) => t[0]));
 
 // ---------- 時刻 ----------
 function parseT(raw) {
@@ -177,6 +203,9 @@ function buildRows() {
     ROWS.push(r);
     if (level === 2) for (const s of sortRows(lows.filter((c) => topOf(c) === r.c.id).map((c) => mk(c, 2)).filter((x) => x.idx.length))) ROWS.push(s);
   }
+  // つながりの端は、いちばん細かい段の点に置く
+  rowOf = new Map();
+  ROWS.forEach((row, i) => { for (const j of row.idx) if (!rowOf.has(j) || row.lv === 2) rowOf.set(j, i); });
 }
 function topOf(c) { let x = c; while (x && x.level > 1) x = byId.get(x.parent); return x ? x.id : null; }
 
@@ -251,6 +280,30 @@ function draw() {
     for (const j of row.idx) { ctx.beginPath(); ctx.arc(X(A[j].t), cy, rad, 0, 7); ctx.fill(); }
   });
   ctx.strokeStyle = C.line; ctx.beginPath(); ctx.moveTo(lab - 0.5, top); ctx.lineTo(lab - 0.5, H - bot); ctx.stroke();
+  if (LINKS) drawLinks();
+}
+const typeColor = (ty) => css((TYPES.find((t) => t[0] === ty) || TYPES[4])[1]);
+function noteXY(j) { const i = rowOf.get(j); return i == null ? null : [LAY.X(A[j].t), LAY.ys[i] + LAY.rh(ROWS[i]) / 2]; }
+function arc(l, width, alpha) {
+  const p = noteXY(l.a), q = noteXY(l.b);
+  if (!p || !q) return;
+  const h = Math.min(70, 0.22 * Math.abs(q[0] - p[0])) + 6;
+  ctx.globalAlpha = alpha; ctx.strokeStyle = typeColor(l.type); ctx.lineWidth = width;
+  ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.bezierCurveTo(p[0], Math.min(p[1], q[1]) - h, q[0], Math.min(p[1], q[1]) - h, q[0], q[1]); ctx.stroke();
+  ctx.globalAlpha = 1;
+}
+function drawLinks() {
+  const vis = LINKS.filter((l) => shownTypes.has(l.type));
+  if (lmode !== "sel") {
+    const bg = lmode === "all" ? vis : vis.filter((l) => A[l.b].t - A[l.a].t > GAP);
+    for (const l of bg) arc(l, 1, lmode === "all" ? 0.18 : 0.4);
+  }
+  const focus = pinNote >= 0 ? pinNote : hovNote;
+  if (focus < 0) return;
+  const mine = vis.filter((l) => l.a === focus || l.b === focus);
+  for (const l of mine) arc(l, 2, 0.95);
+  ctx.fillStyle = css("--fg");
+  for (const j of new Set([focus, ...mine.flatMap((l) => [l.a, l.b])])) { const p = noteXY(j); if (p) { ctx.beginPath(); ctx.arc(p[0], p[1], j === focus ? 4.5 : 3.2, 0, 7); ctx.fill(); } }
 }
 
 // ---------- 触る ----------
@@ -280,15 +333,22 @@ cv.addEventListener("pointermove", (e) => {
   const [x, y] = pos(e), i = rowAt(y);
   if (i !== hovRow) { hovRow = i; draw(); }
   const j = noteAt(i, x);
-  if (j >= 0) { const a = P.arguments[A[j].i]; showTip(x, y, [["m", `${fmt(A[j].t)} · ${ROWS[i].c.label}`], ["", a.argument]]); }
+  if (LINKS && j !== hovNote) { hovNote = j; draw(); }
+  if (j >= 0) {
+    const a = P.arguments[A[j].i], lines = [["m", `${fmt(A[j].t)} · ${ROWS[i].c.label}`], ["", a.argument]];
+    if (LINKS) lines.push(["m", `前の発言を受けた ${(IN.get(j) || []).length} 本 · 後の発言に受けられた ${(OUT.get(j) || []).length} 本`]);
+    showTip(x, y, lines);
+  }
   else if (i >= 0 && x < LAY.lab) showTip(x, y, [["", ROWS[i].c.label], ["m", `${nf(ROWS[i].idx.length)} 件 · 節 ${ROWS[i].runs.length}`]]);
   else hideTip();
 });
-cv.addEventListener("pointerleave", () => { hovRow = -1; hideTip(); draw(); });
+cv.addEventListener("pointerleave", () => { hovRow = -1; hovNote = -1; hideTip(); draw(); });
 cv.addEventListener("click", (e) => {
   const [x, y] = pos(e), i = rowAt(y);
   if (i < 0) return;
-  pinRow = i; draw();
+  const j = LINKS ? noteAt(i, x) : -1;
+  if (j >= 0) { pinRow = -1; showNote(j); return; }
+  pinRow = i; pinNote = -1; draw();
   const run = x >= LAY.lab ? runAt(i, x) : null;
   showDetail(ROWS[i], run);
 });
@@ -317,7 +377,7 @@ function runText(row) {
 function showDetail(row, run) {
   const box = $("detail"); box.hidden = false; box.textContent = "";
   const x = document.createElement("button"); x.className = "x"; x.textContent = "閉じる";
-  x.addEventListener("click", () => { box.hidden = true; pinRow = -1; draw(); });
+  x.addEventListener("click", () => { box.hidden = true; pinRow = -1; pinNote = -1; draw(); });
   box.appendChild(x);
   const h = document.createElement("h2"); h.textContent = row.c.label; box.appendChild(h);
   if (row.lv === 2) { const p = byId.get(topOf(row.c)); if (p) box.appendChild(Object.assign(document.createElement("div"), { className: "note", textContent: `上位のまとまり：${p.label}` })); }
@@ -328,6 +388,67 @@ function showDetail(row, run) {
   box.appendChild(h3);
   box.appendChild(argList(run ? run.idx : row.idx));
   box.scrollIntoView({ block: "nearest" });
+}
+// ---------- つながり ----------
+function labelOfNote(j) { const i = rowOf.get(j); return i == null ? "" : ROWS[i].c.label; }
+function linkItem(l, other, dir) {
+  const li = document.createElement("li");
+  const tg = document.createElement("span"); tg.className = "tg"; tg.style.color = typeColor(l.type); tg.textContent = l.type; li.appendChild(tg);
+  const b = document.createElement("button"); b.className = "lk";
+  b.textContent = `${fmt(A[other].t)} ${P.arguments[A[other].i].argument}`;
+  b.addEventListener("click", () => showNote(other)); li.appendChild(b);
+  const gap = Math.abs(A[l.b].t - A[l.a].t);
+  li.appendChild(Object.assign(document.createElement("div"), { className: "q", textContent: `${dir === "in" ? "受けた箇所" : "受けられた箇所"}：「${l.quote}」${gap > GAP ? `（${fmtDur(gap)} あいて）` : ""}` }));
+  if (l.reason) li.appendChild(Object.assign(document.createElement("div"), { className: "q", textContent: l.reason }));
+  return li;
+}
+function showNote(j) {
+  pinNote = j; draw();
+  const box = $("detail"); box.hidden = false; box.textContent = "";
+  const x = document.createElement("button"); x.className = "x"; x.textContent = "閉じる";
+  x.addEventListener("click", () => { box.hidden = true; pinNote = -1; draw(); });
+  box.appendChild(x);
+  box.appendChild(Object.assign(document.createElement("div"), { className: "note", textContent: `${fmt(A[j].t)} · ${labelOfNote(j)}` }));
+  box.appendChild(Object.assign(document.createElement("h2"), { textContent: P.arguments[A[j].i].argument }));
+  const vis = (ls) => (ls || []).filter((l) => shownTypes.has(l.type));
+  const ins = vis(IN.get(j)), outs = vis(OUT.get(j));
+  box.appendChild(Object.assign(document.createElement("h3"), { textContent: `この発言が受けた前の発言 ${ins.length}` }));
+  const u1 = document.createElement("ul"); u1.className = "lks"; for (const l of ins) u1.appendChild(linkItem(l, l.a, "in")); box.appendChild(u1);
+  box.appendChild(Object.assign(document.createElement("h3"), { textContent: `この発言を受けた後の発言 ${outs.length}` }));
+  const u2 = document.createElement("ul"); u2.className = "lks"; for (const l of outs) u2.appendChild(linkItem(l, l.b, "out")); box.appendChild(u2);
+  box.scrollIntoView({ block: "nearest" });
+}
+function renderLinkLists() {
+  if (!LINKS) return;
+  $("linkSec").hidden = false;
+  const vis = LINKS.filter((l) => shownTypes.has(l.type));
+  const m = LMETA || {};
+  $("linkN").textContent = `つながり ${nf(vis.length)} 本（全 ${nf(LINKS.length)} 本）。後の発言が前の発言を受けているかを LLM が判定し、受けた箇所を前の発言から引用させたもの${m.model ? `（${m.model}）` : ""}。話者は区別していないので、同じ人が話し続けた所もつながりになる。点を押すと、その発言のつながりを読める。`;
+  const one = (ul, items, render) => { ul.textContent = ""; for (const x of items) ul.appendChild(render(x)); };
+  const item = (j, sub) => {
+    const li = document.createElement("li");
+    const b = document.createElement("button"); b.className = "lk"; b.textContent = `${fmt(A[j].t)} ${P.arguments[A[j].i].argument}`;
+    b.addEventListener("click", () => showNote(j)); li.appendChild(b);
+    li.appendChild(Object.assign(document.createElement("div"), { className: "q", textContent: sub }));
+    return li;
+  };
+  const far = vis.filter((l) => A[l.b].t - A[l.a].t > GAP).sort((p, q) => (A[q.b].t - A[q.a].t) - (A[p.b].t - A[p.a].t));
+  $("farN").textContent = `前の発言から ${fmtDur(GAP)}（続きとみなす間隔）より後に、それを受けた発言：${nf(far.length)} 本。あいた時間の長い順。戻ってきた話題が、前の発言にどう応じたか（賛成・反対・根拠・新しい切り口）を読む入口`;
+  one($("far"), far.slice(0, 40), (l) => {
+    const li = document.createElement("li");
+    const tg = document.createElement("span"); tg.className = "tg"; tg.style.color = typeColor(l.type); tg.textContent = l.type; li.appendChild(tg);
+    const b = document.createElement("button"); b.className = "lk"; b.textContent = `${fmt(A[l.b].t)} ${P.arguments[A[l.b].i].argument}`;
+    b.addEventListener("click", () => showNote(l.b)); li.appendChild(b);
+    li.appendChild(Object.assign(document.createElement("div"), { className: "q", textContent: `← ${fmt(A[l.a].t)}（${fmtDur(A[l.b].t - A[l.a].t)} 前）「${l.quote}」` }));
+    return li;
+  });
+  const cnt = (key) => { const c = new Map(); for (const l of vis) c.set(l[key], (c.get(l[key]) || 0) + 1); return [...c].sort((p, q) => q[1] - p[1] || A[p[0]].t - A[q[0]].t); };
+  const div = cnt("a").filter((x) => x[1] >= 3);
+  $("divN").textContent = `後の 3 つ以上の発言に受けられた発言：${nf(div.length)}。早い発言ほど後に受けられる機会が多いので、会の初めに寄りやすい`;
+  one($("div"), div.slice(0, 20), ([j, n]) => item(j, `${n} 本 · ${labelOfNote(j)}`));
+  const con = cnt("b").filter((x) => x[1] >= 2);
+  $("conN").textContent = `前の 2 つ以上の発言を受けた発言：${nf(con.length)}。受けた本数の多い順`;
+  one($("con"), con.slice(0, 20), ([j, n]) => item(j, `${n} 本 · ${labelOfNote(j)}`));
 }
 function renderLists() {
   // 二つの一覧は、表示の段によらず下位のまとまりで数える（上位のまとまりは広く、どれも何度も出てくるので）
@@ -369,14 +490,17 @@ function sync() {
   if (level === 2) u.searchParams.set("level", "2"); else u.searchParams.delete("level");
   if (order === "size") u.searchParams.set("order", "size"); else u.searchParams.delete("order");
   if (GAP !== defaultGap()) u.searchParams.set("gap", String(GAP / MIN)); else u.searchParams.delete("gap");
+  if (LINKS && lmode !== "sel") u.searchParams.set("lmode", lmode); else u.searchParams.delete("lmode");
   history.replaceState(null, "", u);
 }
 function refresh() {
   $("lv1").setAttribute("aria-pressed", level === 1); $("lv2").setAttribute("aria-pressed", level === 2);
   $("oFirst").setAttribute("aria-pressed", order === "first"); $("oSize").setAttribute("aria-pressed", order === "size");
   for (const b of $("gaps").children) b.setAttribute("aria-pressed", +b.dataset.g === GAP);
-  pinRow = -1; $("detail").hidden = true;
-  buildRows(); draw(); renderLists(); sync();
+  $("mSel").setAttribute("aria-pressed", lmode === "sel"); $("mFar").setAttribute("aria-pressed", lmode === "far"); $("mAll").setAttribute("aria-pressed", lmode === "all");
+  for (const b of $("typeSeg").querySelectorAll("button")) b.setAttribute("aria-pressed", shownTypes.has(b.dataset.t));
+  pinRow = -1; pinNote = -1; $("detail").hidden = true;
+  buildRows(); draw(); renderLists(); renderLinkLists(); sync();
 }
 function footer() {
   const f = $("foot"); f.textContent = "";
@@ -428,9 +552,36 @@ async function main() {
   $("lv1").addEventListener("click", () => { level = 1; refresh(); }); $("lv2").addEventListener("click", () => { level = 2; refresh(); });
   $("oFirst").addEventListener("click", () => { order = "first"; refresh(); }); $("oSize").addEventListener("click", () => { order = "size"; refresh(); });
   footer();
+  await loadLinks();
   let lastW = 0;
   new ResizeObserver(() => { const w = Math.floor($("wrap").clientWidth); if (w !== lastW) { lastW = w; if (ROWS.length) draw(); } }).observe($("wrap"));
   refresh();
+}
+async function loadLinks() {
+  const src = Q.get("links");
+  if (!src) return;
+  try {
+    const res = await fetch(src);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const d = await res.json();
+    const at = new Map(A.map((a, j) => [P.arguments[a.i].arg_id, j]));
+    LMETA = d.meta || null;
+    LINKS = (d.links || []).map((l) => ({ a: at.get(l.from), b: at.get(l.to), type: TYPES.some((t) => t[0] === l.type) ? l.type : "その他", quote: l.quote || "", reason: l.reason || "" }))
+      .filter((l) => l.a != null && l.b != null && A[l.a].t <= A[l.b].t);
+    for (const l of LINKS) { (OUT.get(l.a) || OUT.set(l.a, []).get(l.a)).push(l); (IN.get(l.b) || IN.set(l.b, []).get(l.b)).push(l); }
+  } catch (e) { $("warn").textContent = `⚠ つながり ${src} を読めなかった（${e.message || e}）。`; LINKS = null; return; }
+  $("lmodeSeg").hidden = false; $("typeSeg").hidden = false;
+  for (const [ty, v] of TYPES) {
+    if (!LINKS.some((l) => l.type === ty)) continue;
+    const b = document.createElement("button"); b.className = "ty"; b.dataset.t = ty; b.setAttribute("aria-pressed", "true");
+    const sw = document.createElement("span"); sw.className = "sw"; sw.style.background = css(v); b.appendChild(sw); b.appendChild(document.createTextNode(ty));
+    b.addEventListener("click", () => { shownTypes.has(ty) ? shownTypes.delete(ty) : shownTypes.add(ty); refresh(); });
+    $("typeSeg").appendChild(b);
+  }
+  $("mSel").addEventListener("click", () => { lmode = "sel"; refresh(); });
+  $("mFar").addEventListener("click", () => { lmode = "far"; refresh(); });
+  $("mAll").addEventListener("click", () => { lmode = "all"; refresh(); });
+  $("sub").textContent += " 点の上に乗せると、その発言のつながり（後の発言が前の発言を受けた線）が出る。線の色はつながりの種類。";
 }
 main().catch((e) => { $("sub").textContent = "読み込みに失敗しました: " + ((e && e.message) || e); console.error(e); });
 </script>
